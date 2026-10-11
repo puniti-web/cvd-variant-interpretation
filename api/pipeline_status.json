@@ -4,31 +4,31 @@
       "id": 1,
       "name": "Data collection",
       "status": "done",
-      "note": "ClinVar, UniProt, PDB manifest."
+      "note": "ClinVar (paged, 23,039 records), UniProt, Ensembl VEP, AlphaFold DB."
     },
     {
       "id": 2,
       "name": "Preprocessing",
       "status": "done",
-      "note": "Labelled vs VUS split. VUS held out."
+      "note": "Sequence-validated against UniProt canonical. >=1 star, conflicts excluded. 1,886 labelled, 16,860 VUS."
     },
     {
       "id": 3,
       "name": "Feature engineering",
       "status": "done",
-      "note": "Physchem, homolog-identity conservation, domain flag."
+      "note": "28 features: substitution, ortholog + phyloP/GERP conservation, UniProt annotation, AlphaFold context."
     },
     {
       "id": 4,
       "name": "Classification",
       "status": "done",
-      "note": "Random Forest and XGBoost. Gene-level split. Class weighting, no SMOTE."
+      "note": "LR, RF, XGBoost. Leave-one-gene-out CV (LR ROC-AUC 0.910). Baselines and ablation in outputs/metrics.json."
     },
     {
       "id": 5,
       "name": "SHAP",
       "status": "done",
-      "note": "Global plot is XGBoost-only. Per-variant SHAP is computed live by the API."
+      "note": "TreeExplainer on full XGBoost. Global plots, direction check, per-variant explanations, ranked VUS."
     },
     {
       "id": 6,
@@ -40,10 +40,16 @@
       "id": 7,
       "name": "Stability",
       "status": "partial",
-      "note": "Cα RMSD is implemented. FoldX ΔΔG is a stub.",
+      "note": "C\u03b1 RMSD is implemented. FoldX \u0394\u0394G is a stub.",
       "parts": [
-        { "name": "Cα RMSD", "status": "done" },
-        { "name": "FoldX ΔΔG", "status": "stub" }
+        {
+          "name": "C\u03b1 RMSD",
+          "status": "done"
+        },
+        {
+          "name": "FoldX \u0394\u0394G",
+          "status": "stub"
+        }
       ]
     },
     {
