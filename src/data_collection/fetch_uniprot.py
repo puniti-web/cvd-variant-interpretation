@@ -19,6 +19,26 @@ from src.config import RAW_DIR, load_gene_panel, ensure_dirs
 UNIPROT_BASE = "https://rest.uniprot.org/uniprotkb"
 REQUEST_DELAY = 0.2
 
+# Positional UniProt annotations kept for feature engineering. Broad
+# "Region" / "Compositional bias" spans are kept too, but Step 3 treats
+# them separately from structured domains and functional sites.
+UNIPROT_FEATURE_TYPES = (
+    "Domain",
+    "Region",
+    "Repeat",
+    "Zinc finger",
+    "Motif",
+    "Coiled coil",
+    "Compositional bias",
+    "Active site",
+    "Binding site",
+    "Site",
+    "Disulfide bond",
+    "Transmembrane",
+    "Intramembrane",
+    "Topological domain",
+)
+
 
 def fetch_entry(uniprot_id: str) -> dict:
     """Fetch the full UniProtKB JSON entry for one accession."""
@@ -35,15 +55,7 @@ def extract_relevant_fields(entry: dict, gene_symbol: str) -> dict:
         # Domains, active sites, binding sites, disulfide bonds, etc. — anything
         # with a positional span is potentially useful for the "domain
         # membership" feature described in the methodology.
-        if feat.get("type") in (
-            "Domain",
-            "Region",
-            "Active site",
-            "Binding site",
-            "Disulfide bond",
-            "Transmembrane",
-            "Topological domain",
-        ):
+        if feat.get("type") in UNIPROT_FEATURE_TYPES:
             loc = feat.get("location", {})
             start = loc.get("start", {}).get("value")
             end = loc.get("end", {}).get("value")

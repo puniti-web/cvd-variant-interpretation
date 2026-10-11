@@ -1,0 +1,30 @@
+{
+  "raw_records": 23039,
+  "dropped_at_parsing": {
+    "other_gene_or_unparsed": 12,
+    "sequence_mismatch": 252,
+    "nonsense_or_synonymous": 3
+  },
+  "validated_records": 22772,
+  "duplicate_records_collapsed": 556,
+  "variants_with_label_conflict": 1,
+  "unique_variants": 22216,
+  "unique_variants_by_label": {
+    "vus": 16883,
+    "conflicting": 2322,
+    "pathogenic": 1718,
+    "unknown": 664,
+    "other": 334,
+    "benign": 295
+  },
+  "excluded_from_training": {
+    "zero_star_definitive": 110,
+    "label_conflict": 1
+  },
+  "labelled": {
+    "total": 1902,
+    "pathogenic": 1611,
+    "benign": 291
+  },
+  "vus": 16883
+}

@@ -36,13 +36,40 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | Repo hygiene, dependencies, config | done |
-| 1 | Data foundation (complete ClinVar pull, isoform-safe parsing, QC) | in progress |
-| 2 | Feature set v2 | planned |
+| 1 | Data foundation (complete ClinVar pull, isoform-safe parsing, QC) | done |
+| 2 | Feature set v2 | in progress |
 | 3 | Modeling and evaluation | planned |
 | 4 | Explainability | planned |
 | 5 | Structure and stability (FoldX) | to be discussed |
 | 6 | Integrated report | planned |
 | 7 | Frontend integration | planned |
+
+## Data
+
+ClinVar missense SNVs for the 18-gene panel, pulled in full through NCBI
+E-utilities (`src/data_collection/fetch_clinvar.py`).
+
+| Step | Count |
+| --- | ---: |
+| Raw ClinVar records | 23,039 |
+| Dropped: not missense on the UniProt canonical sequence | 252 |
+| Dropped: other gene / unparseable / synonymous | 15 |
+| Unique protein changes after collapsing duplicates | 22,216 |
+| **Labelled training set (≥1 review star, no label conflict)** | **1,902** |
+| &nbsp;&nbsp;pathogenic / likely pathogenic | 1,611 |
+| &nbsp;&nbsp;benign / likely benign | 291 |
+| VUS held out for prioritisation | 16,883 |
+| Conflicting classifications (excluded) | 2,322 |
+
+Every substitution is checked against the UniProt canonical sequence
+(`sequence[position - 1] == wt_aa`). The position comes from the ClinVar
+title, which uses the MANE Select transcript; other isoform numberings are
+used only when they match the canonical sequence. Per-gene counts are in
+`data/processed/qc_per_gene.csv` and the full filter log in
+`data/processed/qc_report.json`.
+
+The benign class is small (about 1 benign per 5.5 pathogenic). Benign
+missense variants in these genes are rarely submitted to ClinVar.
 
 ## Setup
 
