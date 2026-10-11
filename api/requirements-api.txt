@@ -1,0 +1,9 @@
+# HTTP layer for the read-only API.
+# From the repo root, install the pipeline stack first so `src.*` imports resolve:
+#   pip install -r requirements.txt
+# Then:
+#   pip install -r api/requirements-api.txt
+#   uvicorn api.main:app --host 127.0.0.1 --port 8000
+fastapi>=0.115
+uvicorn>=0.30
+pydantic>=2.6

@@ -1,0 +1,60 @@
+{
+  "steps": [
+    {
+      "id": 1,
+      "name": "Data collection",
+      "status": "done",
+      "note": "ClinVar, UniProt, PDB manifest."
+    },
+    {
+      "id": 2,
+      "name": "Preprocessing",
+      "status": "done",
+      "note": "Labelled vs VUS split. VUS held out."
+    },
+    {
+      "id": 3,
+      "name": "Feature engineering",
+      "status": "done",
+      "note": "Physchem, homolog-identity conservation, domain flag."
+    },
+    {
+      "id": 4,
+      "name": "Classification",
+      "status": "done",
+      "note": "Random Forest and XGBoost. Gene-level split. Class weighting, no SMOTE."
+    },
+    {
+      "id": 5,
+      "name": "SHAP",
+      "status": "done",
+      "note": "Global plot is XGBoost-only. Per-variant SHAP is computed live by the API."
+    },
+    {
+      "id": 6,
+      "name": "Structure",
+      "status": "done_poc",
+      "note": "ACTC1 R39H, PDB 9B3R, chain A. Residue-identity swap."
+    },
+    {
+      "id": 7,
+      "name": "Stability",
+      "status": "partial",
+      "note": "Cα RMSD is implemented. FoldX ΔΔG is a stub.",
+      "parts": [
+        { "name": "Cα RMSD", "status": "done" },
+        { "name": "FoldX ΔΔG", "status": "stub" }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Integrated report",
+      "status": "partial",
+      "note": "make_report exists and is not wired to the pipeline."
+    }
+  ],
+  "ui": {
+    "streamlit": "done",
+    "react": "done"
+  }
+}

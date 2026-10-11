@@ -1,0 +1,157 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: 'Inter Tight', 'Segoe UI', sans-serif;
+  --font-display: 'Fraunces', 'Iowan Old Style', Palatino, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --color-paper: var(--bg);
+  --color-ink: var(--fg);
+  --color-mute: var(--muted);
+  --color-panel: var(--panel);
+  --color-pathogenic: #ff7a1a;
+  --color-benign: #3ddc84;
+  --color-vus: #8b7cff;
+  --color-graphite: #6e675f;
+}
+
+:root {
+  --bg: #f3efe6;
+  --fg: #14161a;
+  --muted: #5c574f;
+  --panel: #e7e1d4;
+  --graphite: #6e675f;
+  color-scheme: light;
+}
+
+html.dark {
+  --bg: #0b0d10;
+  --fg: #e7e2d6;
+  --muted: #a39c92;
+  --panel: #15191f;
+  --graphite: #8a837a;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.grain {
+  position: relative;
+}
+
+.grain::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+  background-image: radial-gradient(rgba(20, 22, 26, 0.45) 0.55px, transparent 0.55px);
+  background-size: 3px 3px;
+}
+
+html.dark .grain::before {
+  opacity: 0.16;
+  mix-blend-mode: screen;
+  background-image: radial-gradient(rgba(231, 226, 214, 0.45) 0.55px, transparent 0.55px);
+}
+
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: 0.75rem;
+  top: -4rem;
+  z-index: 80;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 0.5rem 0.75rem;
+}
+
+.skip:focus {
+  top: 0.75rem;
+}
+
+.stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transform: rotate(-8deg);
+  border: 2px solid #14161a;
+  color: #14161a;
+  box-shadow: 3px 3px 0 #14161a;
+  padding: 0.45rem 0.7rem;
+  font-family: var(--font-display);
+  line-height: 1.1;
+}
+
+.control {
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--fg) 45%, transparent);
+  background: var(--panel);
+  color: var(--fg);
+  padding: 0 0.75rem;
+}
+
+.rule {
+  border-color: color-mix(in srgb, var(--fg) 28%, transparent);
+}
+
+.gel-shimmer {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fg) 8%, transparent),
+    color-mix(in srgb, var(--fg) 18%, transparent),
+    color-mix(in srgb, var(--fg) 8%, transparent)
+  );
+  background-size: 200% 100%;
+  animation: gel 1.4s ease-in-out infinite;
+}
+
+@keyframes gel {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gel-shimmer {
+    animation: none;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .grain::before {
+    display: none;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+}
