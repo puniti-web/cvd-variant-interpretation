@@ -54,7 +54,6 @@
     }
   ],
   "ui": {
-    "streamlit": "done",
     "react": "done"
   }
 }

@@ -15,9 +15,11 @@ import type {
 } from './types.ts'
 import * as mocks from '../mocks/assemble.ts'
 
-export const useMocks = import.meta.env.VITE_USE_MOCKS !== 'false'
+const mockFlag = import.meta.env.VITE_USE_MOCKS
+export const useMocks = mockFlag === 'true' ? true : mockFlag === 'false' ? false : import.meta.env.DEV
 
-const apiBase = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')
+const configuredApi = import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
+const apiBase = configuredApi || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
 
 export class ApiError extends Error {
   status: number

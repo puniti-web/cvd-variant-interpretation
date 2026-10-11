@@ -74,8 +74,7 @@ Phase 1 adds `api/pipeline_status.json` (new file, not an `src/` change). `GET /
     { "id": 8, "name": "Integrated report", "status": "partial", "note": "make_report exists and is not wired to the pipeline." }
   ],
   "ui": {
-    "streamlit": "done",
-    "react": "in_progress"
+    "react": "done"
   }
 }
 ```

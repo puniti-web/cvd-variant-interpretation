@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -202,3 +203,42 @@ def pdb_file(name: str):
 @app.get("/ablation")
 def ablation():
     return ablation_payload(_catalog())
+
+
+_DIST = Path(__file__).resolve().parents[1] / "web" / "dist"
+_BUILD_HINT = (
+    "The React dashboard has not been built.\n"
+    "From the web folder run: npm install && npm run build\n"
+    "Then restart this server and open http://127.0.0.1:8000/"
+)
+
+
+def _dist_file(relative: str) -> Path | None:
+    if not relative or relative.endswith("/"):
+        return None
+    root = _DIST.resolve()
+    candidate = (_DIST / relative).resolve()
+    if candidate != root and root not in candidate.parents:
+        return None
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+@app.get("/", include_in_schema=False)
+def dashboard():
+    index = _DIST / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    return PlainTextResponse(_BUILD_HINT, status_code=503)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def dashboard_files(full_path: str):
+    asset = _dist_file(full_path)
+    if asset is not None:
+        return FileResponse(asset)
+    index = _DIST / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    _fail(404, "Frontend build is not present. From web/, run npm install && npm run build.")
