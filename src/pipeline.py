@@ -6,6 +6,7 @@ Usage:
     python -m src.pipeline --stage all
     python -m src.pipeline --stage collect
     python -m src.pipeline --stage preprocess
+    python -m src.pipeline --stage annotate
     python -m src.pipeline --stage features
     python -m src.pipeline --stage train
     python -m src.pipeline --stage explain
@@ -29,6 +30,22 @@ def run_preprocess():
     clean_variants.main()
 
 
+def run_annotate():
+    import sys
+
+    from src.data_collection import fetch_ensembl_vep
+    from src.features import build_conservation_scores, structure_features
+
+    build_conservation_scores.main()
+    structure_features.main()
+    # VEP reads its own CLI flags; run it on everything (labelled + VUS).
+    argv, sys.argv = sys.argv, [sys.argv[0]]
+    try:
+        fetch_ensembl_vep.main()
+    finally:
+        sys.argv = argv
+
+
 def run_features():
     from src.features import build_feature_matrix
 
@@ -50,6 +67,7 @@ def run_explain():
 STAGES = {
     "collect": run_collect,
     "preprocess": run_preprocess,
+    "annotate": run_annotate,
     "features": run_features,
     "train": run_train,
     "explain": run_explain,

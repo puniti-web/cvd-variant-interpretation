@@ -1,415 +1,155 @@
 """
-Build sequence-based conservation scores for the CVD gene panel.
+Build protein-level conservation scores for the CVD gene panel.
 
 For each human UniProt reference protein:
-    1. Search UniProt for reviewed proteins belonging to the same protein family
-       using the reference accession / gene information.
-    2. Retrieve their sequences.
-    3. Align each sequence to the human reference.
-    4. Calculate residue-level conservation.
+    1. Retrieve vertebrate orthologs from UniProtKB: entries with the same
+       gene name, excluding Homo sapiens, one sequence per species
+       (reviewed entry preferred, then the longest). Swiss-Prot alone has
+       only a handful of orthologs for most of these genes.
+    2. Globally align each ortholog to the human sequence (BLOSUM62,
+       affine gaps).
+    3. For every human residue, record which amino acid each ortholog has
+       at the aligned position.
 
-Output:
+Outputs:
     data/raw/conservation_scores.json
-"""
+        {gene: {position: fraction of aligned orthologs that keep the
+        human residue}}. Same format as before; the API reads it.
+    data/raw/conservation_profiles.json
+        {gene: {position: string of ortholog residues at that position}},
+        used to ask whether the mutant residue already occurs in another
+        species (a strong sign the substitution is tolerated).
 
+This is a small-ortholog-set proxy, complementary to the genome-level
+phyloP / GERP scores from Ensembl VEP. Positions with fewer than
+MIN_HOMOLOGS aligned orthologs get no score.
+
+Usage:
+    python -m src.features.build_conservation_scores
+"""
 import json
 import time
-from pathlib import Path
 
 import requests
-from Bio.Align import PairwiseAligner
+from Bio.Align import PairwiseAligner, substitution_matrices
 
-from src.config import RAW_DIR, ensure_dirs
-
+from src.config import RAW_DIR, USER_AGENT, ensure_dirs
 
 UNIPROT_SEARCH_URL = "https://rest.uniprot.org/uniprotkb/search"
-
 CONSERVATION_OUTPUT = RAW_DIR / "conservation_scores.json"
-
-REQUEST_TIMEOUT = 30
-
+PROFILE_OUTPUT = RAW_DIR / "conservation_profiles.json"
+REQUEST_TIMEOUT = 60
 MIN_HOMOLOGS = 3
-MAX_HOMOLOGS = 12
+MAX_HOMOLOGS = 60
+SEARCH_PAGE_SIZE = 500
+VERTEBRATA_TAXON = 7742
+# Orthologs that align over less than this fraction of the human sequence
+# are usually fragments or mis-annotated paralogs.
+MIN_ALIGNED_FRACTION = 0.5
 
 
 def load_uniprot_entries():
     path = RAW_DIR / "uniprot_entries.json"
-
     if not path.exists():
-        raise FileNotFoundError(
-            f"{path} not found. "
-            "Run `python -m src.data_collection.fetch_uniprot` first."
-        )
-
-    with open(path, "r", encoding="utf-8") as f:
+        raise FileNotFoundError(f"{path} not found. Run `python -m src.data_collection.fetch_uniprot` first.")
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def search_homologs(gene_symbol, human_uniprot_id):
-    """
-    Search UniProt for reviewed proteins associated with the same gene.
-
-    We explicitly use the gene field instead of protein_name because
-    UniProt protein names are often different from gene symbols.
-    """
-
-    queries = [
-        f"gene_exact:{gene_symbol} AND reviewed:true",
-        f"gene:{gene_symbol} AND reviewed:true",
-    ]
-
-    for query in queries:
-
-        params = {
-            "query": query,
-            "format": "json",
-            "size": MAX_HOMOLOGS,
-            "fields": "accession,id,protein_name,gene_names,organism_name,sequence",
+def search_homologs(gene_symbol: str) -> list[dict]:
+    """One UniProt sequence per non-human vertebrate species with the same gene name."""
+    params = {
+        "query": f"gene_exact:{gene_symbol} AND taxonomy_id:{VERTEBRATA_TAXON} NOT organism_id:9606 "
+                 f"AND fragment:false",
+        "format": "json",
+        "size": SEARCH_PAGE_SIZE,
+        "fields": "accession,reviewed,organism_name,organism_id,sequence",
+    }
+    resp = requests.get(UNIPROT_SEARCH_URL, params=params, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    by_species: dict[int, dict] = {}
+    for result in resp.json().get("results", []):
+        sequence = (result.get("sequence") or {}).get("value")
+        organism = result.get("organism") or {}
+        if not sequence:
+            continue
+        candidate = {
+            "accession": result.get("primaryAccession"),
+            "organism": organism.get("scientificName"),
+            "reviewed": "reviewed" in str(result.get("entryType", "")).lower()
+            and "unreviewed" not in str(result.get("entryType", "")).lower(),
+            "sequence": sequence,
         }
-
-        try:
-            response = requests.get(
-                UNIPROT_SEARCH_URL,
-                params=params,
-                timeout=REQUEST_TIMEOUT,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        except requests.RequestException as exc:
-            print(f"[warn] UniProt request failed for {gene_symbol}: {exc}")
-            return []
-
-        homologs = []
-
-        for result in data.get("results", []):
-
-            accession = result.get("primaryAccession")
-
-            if not accession:
-                continue
-
-            # Don't include the human reference itself.
-            if accession == human_uniprot_id:
-                continue
-
-            sequence_info = result.get("sequence") or {}
-            sequence = sequence_info.get("value")
-
-            if not sequence:
-                continue
-
-            organism = (
-                result.get("organism") or {}
-            ).get("scientificName")
-
-            # Avoid accidentally including another human protein.
-            if organism == "Homo sapiens":
-                continue
-
-            homologs.append(
-                {
-                    "accession": accession,
-                    "sequence": sequence,
-                    "organism": organism,
-                }
-            )
-
-        if len(homologs) >= MIN_HOMOLOGS:
-            return homologs
-
-    return homologs
+        current = by_species.get(organism.get("taxonId"))
+        rank = (candidate["reviewed"], len(sequence))
+        if current is None or rank > (current["reviewed"], len(current["sequence"])):
+            by_species[organism.get("taxonId")] = candidate
+    homologs = sorted(by_species.values(), key=lambda h: (not h["reviewed"], -len(h["sequence"])))
+    return homologs[:MAX_HOMOLOGS]
 
 
-def create_aligner():
-    """
-    Create a global pairwise aligner.
-
-    We use BLOSUM62 with affine gap penalties.
-    """
-
+def create_aligner() -> PairwiseAligner:
     aligner = PairwiseAligner()
-
     aligner.mode = "global"
-
-    aligner.match_score = 1.0
-    aligner.mismatch_score = -1.0
-
+    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
     aligner.open_gap_score = -10.0
     aligner.extend_gap_score = -0.5
-
     return aligner
 
 
-def align_and_score(reference_sequence, homologs):
-    """
-    Calculate residue-level identity conservation.
+def aligned_residues(aligner: PairwiseAligner, reference: str, homolog: str) -> dict[int, str]:
+    """Map 1-based reference positions to the aligned homolog residue (gaps omitted)."""
+    alignment = aligner.align(reference, homolog)[0]
+    mapping = {}
+    for (r_start, r_end), (h_start, _) in zip(*alignment.aligned):
+        for k in range(r_end - r_start):
+            mapping[r_start + k + 1] = homolog[h_start + k]
+    return mapping
 
-    For each position in the human reference:
 
-        conservation =
-            identical aligned residues /
-            homolog residues observed at that position
-
-    Positions with fewer than MIN_HOMOLOGS observations are omitted.
-    """
-
+def build_profiles(reference: str, homologs: list[dict]) -> dict[int, str]:
     aligner = create_aligner()
-
-    counts = {
-        position: {
-            "same": 0,
-            "observed": 0,
-        }
-        for position in range(1, len(reference_sequence) + 1)
-    }
-
+    profiles: dict[int, list[str]] = {pos: [] for pos in range(1, len(reference) + 1)}
     for homolog in homologs:
-
-        homolog_sequence = homolog["sequence"]
-
-        try:
-            alignment = aligner.align(
-                reference_sequence,
-                homolog_sequence,
-            )[0]
-
-        except Exception as exc:
-            print(
-                f"[warn] Alignment failed for "
-                f"{homolog['accession']}: {exc}"
-            )
+        mapping = aligned_residues(aligner, reference, homolog["sequence"])
+        if len(mapping) < MIN_ALIGNED_FRACTION * len(reference):
             continue
-
-        # Convert the alignment into aligned strings.
-        aligned_reference, aligned_homolog = alignment_to_strings(
-            alignment,
-            reference_sequence,
-            homolog_sequence,
-        )
-
-        reference_position = 0
-
-        for ref_aa, homolog_aa in zip(
-            aligned_reference,
-            aligned_homolog,
-        ):
-
-            if ref_aa != "-":
-                reference_position += 1
-
-            if ref_aa == "-":
-                continue
-
-            if homolog_aa == "-":
-                continue
-
-            counts[reference_position]["observed"] += 1
-
-            if ref_aa == homolog_aa:
-                counts[reference_position]["same"] += 1
-
-    scores = {}
-
-    for position, values in counts.items():
-
-        if values["observed"] < MIN_HOMOLOGS:
-            continue
-
-        score = (
-            values["same"] /
-            values["observed"]
-        )
-
-        scores[str(position)] = round(score, 4)
-
-    return scores
+        for pos, aa in mapping.items():
+            profiles[pos].append(aa)
+    return {pos: "".join(aas) for pos, aas in profiles.items()}
 
 
-def alignment_to_strings(
-    alignment,
-    reference_sequence,
-    homolog_sequence,
-):
-    """
-    Convert a Biopython PairwiseAligner alignment into
-    two gapped strings.
-
-    The coordinates describe blocks in the original sequences.
-    """
-
-    aligned_reference = []
-    aligned_homolog = []
-
-    ref_blocks = alignment.aligned[0]
-    hom_blocks = alignment.aligned[1]
-
-    ref_cursor = 0
-    hom_cursor = 0
-
-    for (ref_start, ref_end), (hom_start, hom_end) in zip(
-        ref_blocks,
-        hom_blocks,
-    ):
-
-        # Gap in homolog.
-        if ref_start > ref_cursor:
-            aligned_reference.append(
-                reference_sequence[ref_cursor:ref_start]
-            )
-
-            aligned_homolog.append(
-                "-" * (ref_start - ref_cursor)
-            )
-
-        # Gap in reference.
-        if hom_start > hom_cursor:
-            aligned_reference.append(
-                "-" * (hom_start - hom_cursor)
-            )
-
-            aligned_homolog.append(
-                homolog_sequence[hom_cursor:hom_start]
-            )
-
-        # Aligned region.
-        aligned_reference.append(
-            reference_sequence[ref_start:ref_end]
-        )
-
-        aligned_homolog.append(
-            homolog_sequence[hom_start:hom_end]
-        )
-
-        ref_cursor = ref_end
-        hom_cursor = hom_end
-
-    # Remaining sequence.
-    if ref_cursor < len(reference_sequence):
-        aligned_reference.append(
-            reference_sequence[ref_cursor:]
-        )
-
-        aligned_homolog.append(
-            "-" * (len(reference_sequence) - ref_cursor)
-        )
-
-    if hom_cursor < len(homolog_sequence):
-        aligned_reference.append(
-            "-" * (len(homolog_sequence) - hom_cursor)
-        )
-
-        aligned_homolog.append(
-            homolog_sequence[hom_cursor:]
-        )
-
-    return (
-        "".join(aligned_reference),
-        "".join(aligned_homolog),
-    )
-
-
-def build_conservation_for_gene(entry):
-
-    gene = entry["gene_symbol"]
-    uniprot_id = entry["uniprot_id"]
-    reference_sequence = entry["sequence"]
-
-    print(f"\n[{gene}]")
-    print(f"Reference: {uniprot_id}")
-    print(f"Sequence length: {len(reference_sequence)}")
-
-    homologs = search_homologs(
-        gene,
-        uniprot_id,
-    )
-
-    print(
-        f"Retrieved non-human reviewed homologs: "
-        f"{len(homologs)}"
-    )
-
-    if len(homologs) < MIN_HOMOLOGS:
-
-        print(
-            f"[warn] Not enough homologs for {gene}; "
-            f"need at least {MIN_HOMOLOGS}."
-        )
-
-        return {}
-
-    scores = align_and_score(
-        reference_sequence,
-        homologs,
-    )
-
-    print(
-        f"Calculated conservation scores: "
-        f"{len(scores)}"
-    )
-
-    return scores
+def identity_scores(reference: str, profiles: dict[int, str]) -> dict[str, float]:
+    return {
+        str(pos): round(aas.count(reference[pos - 1]) / len(aas), 4)
+        for pos, aas in profiles.items()
+        if len(aas) >= MIN_HOMOLOGS
+    }
 
 
 def main():
-
     ensure_dirs()
-
-    entries = load_uniprot_entries()
-
-    print(f"Found {len(entries)} genes.")
-
-    conservation_scores = {}
-
-    for entry in entries:
-
-        gene = entry["gene_symbol"]
-
+    scores, profiles = {}, {}
+    for entry in load_uniprot_entries():
+        gene, reference = entry["gene_symbol"], entry["sequence"]
         try:
+            homologs = search_homologs(gene)
+            gene_profiles = build_profiles(reference, homologs) if len(homologs) >= MIN_HOMOLOGS else {}
+        except requests.RequestException as exc:
+            print(f"[warn] {gene}: homolog search failed: {exc}")
+            gene_profiles = {}
+        scores[gene] = identity_scores(reference, gene_profiles)
+        profiles[gene] = {str(p): aas for p, aas in gene_profiles.items() if aas}
+        depth = max((len(a) for a in gene_profiles.values()), default=0)
+        print(f"  {gene}: {len(homologs) if gene_profiles else 0} orthologs, max depth {depth}, "
+              f"{len(scores[gene])} scored residues")
+        time.sleep(0.5)
 
-            scores = build_conservation_for_gene(
-                entry
-            )
-
-            conservation_scores[gene] = scores
-
-        except Exception as exc:
-
-            print(
-                f"[error] Failed to process "
-                f"{gene}: {exc}"
-            )
-
-            conservation_scores[gene] = {}
-
-        # Avoid sending requests too quickly.
-        time.sleep(1)
-
-    with open(
-        CONSERVATION_OUTPUT,
-        "w",
-        encoding="utf-8",
-    ) as f:
-
-        json.dump(
-            conservation_scores,
-            f,
-            indent=2,
-        )
-
-    print(
-        f"\nSaved conservation scores to:"
-        f"\n{CONSERVATION_OUTPUT}"
-    )
-
-    print("\nSummary:")
-
-    for gene, scores in conservation_scores.items():
-
-        print(
-            f"  {gene}: "
-            f"{len(scores)} residue scores"
-        )
+    with open(CONSERVATION_OUTPUT, "w", encoding="utf-8") as f:
+        json.dump(scores, f)
+    with open(PROFILE_OUTPUT, "w", encoding="utf-8") as f:
+        json.dump(profiles, f)
+    print(f"Saved {CONSERVATION_OUTPUT} and {PROFILE_OUTPUT}")
 
 
 if __name__ == "__main__":

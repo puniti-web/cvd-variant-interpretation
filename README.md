@@ -37,8 +37,8 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | --- | --- | --- |
 | 0 | Repo hygiene, dependencies, config | done |
 | 1 | Data foundation (complete ClinVar pull, isoform-safe parsing, QC) | done |
-| 2 | Feature set v2 | in progress |
-| 3 | Modeling and evaluation | planned |
+| 2 | Feature set v2 | done |
+| 3 | Modeling and evaluation | in progress |
 | 4 | Explainability | planned |
 | 5 | Structure and stability (FoldX) | to be discussed |
 | 6 | Integrated report | planned |
@@ -71,6 +71,29 @@ used only when they match the canonical sequence. Per-gene counts are in
 The benign class is small (about 1 benign per 5.5 pathogenic). Benign
 missense variants in these genes are rarely submitted to ClinVar.
 
+## Features
+
+Built by `src/features/build_feature_matrix.py` into
+`data/features/feature_matrix.csv` (labelled) and `feature_matrix_vus.csv`.
+
+| Group | Features | Source |
+| --- | --- | --- |
+| Substitution | Δ hydrophobicity, Δ molecular weight, Δ volume, Δ charge, polarity change, Pro/Gly gain or loss, BLOSUM62, Grantham distance | amino-acid property tables |
+| Position | relative position in the protein | UniProt sequence length |
+| Ortholog conservation | fraction of 60 vertebrate orthologs keeping the human residue; fraction already carrying the mutant residue | UniProtKB orthologs, BLOSUM62 global alignment |
+| Genomic conservation | phyloP 100-way, phastCons 100-way, GERP++ | Ensembl VEP REST (dbNSFP) |
+| Annotation | in structured domain, in transmembrane segment, at functional site, distance to nearest site, in disordered region, in coiled coil | UniProt |
+| Structure | pLDDT, relative solvent accessibility, Cα contact count, secondary structure | AlphaFold DB model |
+
+Raw residue position is no longer a feature: residue 400 means nothing
+comparable across proteins. AlphaFold DB has no single full-length model
+for RYR2 (4,967 aa), so its structural features are imputed and flagged by
+`has_structure`.
+
+SIFT, PolyPhen-2, AlphaMissense and REVEL scores from VEP are stored next
+to the features as baselines only. REVEL and AlphaMissense were trained or
+calibrated on ClinVar, so using them as inputs would leak the label.
+
 ## Setup
 
 ```bash
@@ -95,7 +118,12 @@ $env:NCBI_EMAIL="you@example.com"   # PowerShell
 python -m src.pipeline --stage all
 ```
 
-or one stage at a time: `collect`, `preprocess`, `features`, `train`, `explain`.
+or one stage at a time: `collect`, `preprocess`, `annotate`, `features`,
+`train`, `explain`. `annotate` calls Ensembl VEP for every variant and takes
+about an hour for the full VUS set; it resumes from
+`data/raw/vep_annotations.csv` if interrupted. Use
+`python -m src.data_collection.fetch_ensembl_vep --labelled-only` for the
+training set alone (a few minutes).
 
 ## Tests
 
