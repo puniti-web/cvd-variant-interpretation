@@ -185,7 +185,7 @@ def load_canonical_sequences() -> dict[str, str]:
 
 def parse_and_validate(df: pd.DataFrame, sequences: dict[str, str], qc: dict) -> pd.DataFrame:
     rows = []
-    reasons = {"other_gene_or_unparsed": 0, "sequence_mismatch": 0, "nonsense_or_synonymous": 0}
+    reasons = {"other_gene_or_unparsed": 0, "sequence_mismatch": 0, "nonsense_or_synonymous": 0, "start_loss": 0}
     for rec in df.to_dict("records"):
         candidates = candidate_changes(rec.get("title"), rec.get("protein_change"), rec["gene_symbol"])
         if not candidates:
@@ -198,6 +198,10 @@ def parse_and_validate(df: pd.DataFrame, sequences: dict[str, str], qc: dict) ->
         wt, pos, mut, source = resolved
         if wt not in STANDARD_AA or mut not in STANDARD_AA or wt == mut:
             reasons["nonsense_or_synonymous"] += 1
+            continue
+        if pos == 1 and wt == "M":
+            # p.Met1X removes the start codon: a loss-of-initiation variant, not a missense change.
+            reasons["start_loss"] += 1
             continue
         rows.append({**rec, "wt_aa": wt, "position": pos, "mut_aa": mut, "position_source": source})
     qc["dropped_at_parsing"] = reasons

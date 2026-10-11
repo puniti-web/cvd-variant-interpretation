@@ -899,24 +899,20 @@ def _frame(
         return None, in_domain.get("reason") or "Domain membership is unknown."
     if not record.get("panel"):
         return None, "panel is missing on this row, so the model frame cannot be built."
-    import numpy as np
     import pandas as pd
 
-    data = {
-        "position": float(record["position"]),
-        "delta_hydrophobicity": float(physchem["delta_hydrophobicity"]),
-        "delta_molecular_weight": float(physchem["delta_molecular_weight"]),
-        "delta_volume": float(physchem["delta_volume"]),
-        "delta_charge": float(physchem["delta_charge"]),
-        "conservation_score": float(raw_score) if raw_score is not None else np.nan,
-        "polarity_change": bool(physchem["polarity_change"]),
-        "wt_is_proline": bool(physchem["wt_is_proline"]),
-        "mut_is_proline": bool(physchem["mut_is_proline"]),
-        "wt_is_glycine": bool(physchem["wt_is_glycine"]),
-        "mut_is_glycine": bool(physchem["mut_is_glycine"]),
-        "in_annotated_domain": bool(in_domain["value"]),
-        "panel": str(record["panel"]),
-    }
+    # The feature set grew in pipeline phase 2 (VEP conservation, AlphaFold
+    # context, UniProt annotations), so the row is built by the same src
+    # function that builds the training matrix rather than by hand here.
+    try:
+        from src.features.build_feature_matrix import features_for_variant
+
+        data = features_for_variant(record)
+    except Exception as exc:
+        return None, f"Feature row could not be built: {exc}"
+    missing = [column for column in catalog.feature_cols if column not in data]
+    if missing:
+        return None, "Feature row is missing columns: " + ", ".join(missing)
     return pd.DataFrame([{column: data[column] for column in catalog.feature_cols}]), None
 
 

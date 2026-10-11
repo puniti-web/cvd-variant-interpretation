@@ -38,8 +38,8 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | 0 | Repo hygiene, dependencies, config | done |
 | 1 | Data foundation (complete ClinVar pull, isoform-safe parsing, QC) | done |
 | 2 | Feature set v2 | done |
-| 3 | Modeling and evaluation | in progress |
-| 4 | Explainability | planned |
+| 3 | Modeling and evaluation | done |
+| 4 | Explainability | in progress |
 | 5 | Structure and stability (FoldX) | to be discussed |
 | 6 | Integrated report | planned |
 | 7 | Frontend integration | planned |
@@ -54,12 +54,13 @@ E-utilities (`src/data_collection/fetch_clinvar.py`).
 | Raw ClinVar records | 23,039 |
 | Dropped: not missense on the UniProt canonical sequence | 252 |
 | Dropped: other gene / unparseable / synonymous | 15 |
-| Unique protein changes after collapsing duplicates | 22,216 |
-| **Labelled training set (≥1 review star, no label conflict)** | **1,902** |
-| &nbsp;&nbsp;pathogenic / likely pathogenic | 1,611 |
-| &nbsp;&nbsp;benign / likely benign | 291 |
-| VUS held out for prioritisation | 16,883 |
-| Conflicting classifications (excluded) | 2,322 |
+| Dropped: start-loss (p.Met1X) | 66 |
+| Unique protein changes after collapsing duplicates | 22,162 |
+| **Labelled training set (≥1 review star, no label conflict)** | **1,886** |
+| &nbsp;&nbsp;pathogenic / likely pathogenic | 1,598 |
+| &nbsp;&nbsp;benign / likely benign | 288 |
+| VUS held out for prioritisation | 16,860 |
+| Conflicting classifications (excluded) | 2,315 |
 
 Every substitution is checked against the UniProt canonical sequence
 (`sequence[position - 1] == wt_aa`). The position comes from the ClinVar
@@ -93,6 +94,74 @@ for RYR2 (4,967 aa), so its structural features are imputed and flagged by
 SIFT, PolyPhen-2, AlphaMissense and REVEL scores from VEP are stored next
 to the features as baselines only. REVEL and AlphaMissense were trained or
 calibrated on ClinVar, so using them as inputs would leak the label.
+
+## Model performance
+
+`python -m src.modeling.train_classifier` writes everything below to
+`outputs/metrics.json`, out-of-fold predictions to
+`outputs/oof_predictions.csv` and curves to `outputs/roc_pr_curves.png`.
+1886 labelled variants, 1598 pathogenic / 288 benign. Threshold 0.5.
+
+**Leave-one-gene-out** (headline): each gene is scored by a model that never
+saw a variant from it.
+
+| Model | ROC-AUC [95% CI] | PR-AUC | MCC | Balanced acc. | Recall | Specificity |
+| --- | --- | --- | --- | --- | --- | --- |
+| Logistic Regression | 0.910 [0.884–0.932] | 0.976 | 0.624 | 0.849 | 0.903 | 0.795 |
+| Random Forest | 0.885 [0.854–0.915] | 0.960 | 0.654 | 0.797 | 0.969 | 0.625 |
+| XGBoost | 0.890 [0.861–0.918] | 0.967 | 0.614 | 0.836 | 0.911 | 0.760 |
+
+**Within-gene** (5-fold, 5 repeats, genes shared between train and test),
+for comparison:
+
+| Model | ROC-AUC [95% CI] | PR-AUC | MCC | Balanced acc. | Recall | Specificity |
+| --- | --- | --- | --- | --- | --- | --- |
+| Logistic Regression | 0.926 [0.906–0.946] | 0.982 | 0.649 | 0.863 | 0.908 | 0.817 |
+| Random Forest | 0.929 [0.909–0.951] | 0.982 | 0.737 | 0.853 | 0.970 | 0.735 |
+| XGBoost | 0.931 [0.913–0.954] | 0.983 | 0.687 | 0.873 | 0.926 | 0.819 |
+
+The small gap between the two tables means the models are not leaning on
+gene identity. Logistic regression generalises best to unseen genes;
+XGBoost is within about 0.02 ROC-AUC and is the model explained with SHAP.
+
+**Published predictors** on the same variants (best leave-one-gene-out
+model alongside):
+
+| Predictor | Coverage | ROC-AUC | Our model, same variants |
+| --- | --- | --- | --- |
+| alphamissense | 93% | 0.970 | 0.915 |
+| revel | 99% | 0.958 | 0.918 |
+| polyphen_score | 82% | 0.891 | 0.929 |
+| sift_score | 84% | 0.759 | 0.921 |
+
+The model beats SIFT and PolyPhen-2 but not REVEL or AlphaMissense. Both of
+those used ClinVar labels in training or calibration, so their scores on
+ClinVar variants are optimistic and not a fair comparison.
+
+**Feature-group ablation** (leave-one-gene-out ROC-AUC):
+
+| Removed | Logistic regression | XGBoost |
+| --- | --- | --- |
+| all features | 0.910 | 0.890 |
+| without conservation | 0.803 | 0.800 |
+| without structure | 0.888 | 0.861 |
+| without annotation | 0.914 | 0.898 |
+| without panel | 0.904 | 0.899 |
+
+Conservation carries most of the signal, with structure second. UniProt
+annotation features add little once conservation and structure are present.
+`relative_position` was dropped after this kind of comparison showed it
+lowered leave-one-gene-out ROC-AUC for all three models. Choosing features
+on the same CV adds slight optimism.
+
+Saved models (`outputs/`):
+
+- `model_*.joblib`: trained on the training genes of `gene_level_split`
+  only, so the API can score them on genes they never saw.
+- `model_*_full.joblib`: refit on all labelled variants, used for VUS
+  scoring and explanations.
+- `model_xgboost_full_calibrated.joblib`: sigmoid-calibrated XGBoost
+  (gene-grouped folds) for report confidence values.
 
 ## Setup
 

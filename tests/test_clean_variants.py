@@ -63,6 +63,8 @@ def test_duplicates_collapse_to_highest_star_and_conflicts_are_excluded():
         _record(5, "NM_1.1(GENE1):c.20T>C (p.Val7Ala)", "Benign", "no assertion criteria provided"),
         # Synonymous -> dropped.
         _record(6, "NM_1.1(GENE1):c.20T>C (p.Val7Val)", "Benign", one_star),
+        # Start loss -> dropped.
+        _record(7, "NM_1.1(GENE1):c.2T>C (p.Met1Thr)", "Benign", one_star),
     ])
     qc = {}
     cleaned = clean(df, {"GENE1": SEQ}, qc)
@@ -74,3 +76,4 @@ def test_duplicates_collapse_to_highest_star_and_conflicts_are_excluded():
     assert labelled.iloc[0]["n_clinvar_records"] == 2
     assert qc["excluded_from_training"] == {"zero_star_definitive": 1, "label_conflict": 1}
     assert len(vus) == 0
+    assert qc["dropped_at_parsing"]["start_loss"] == 1

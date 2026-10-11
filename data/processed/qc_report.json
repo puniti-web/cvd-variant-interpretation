@@ -3,28 +3,29 @@
   "dropped_at_parsing": {
     "other_gene_or_unparsed": 12,
     "sequence_mismatch": 252,
-    "nonsense_or_synonymous": 3
+    "nonsense_or_synonymous": 3,
+    "start_loss": 66
   },
-  "validated_records": 22772,
-  "duplicate_records_collapsed": 556,
-  "variants_with_label_conflict": 1,
-  "unique_variants": 22216,
+  "validated_records": 22706,
+  "duplicate_records_collapsed": 544,
+  "variants_with_label_conflict": 0,
+  "unique_variants": 22162,
   "unique_variants_by_label": {
-    "vus": 16883,
-    "conflicting": 2322,
-    "pathogenic": 1718,
-    "unknown": 664,
-    "other": 334,
-    "benign": 295
+    "vus": 16860,
+    "conflicting": 2315,
+    "pathogenic": 1705,
+    "unknown": 659,
+    "other": 332,
+    "benign": 291
   },
   "excluded_from_training": {
     "zero_star_definitive": 110,
-    "label_conflict": 1
+    "label_conflict": 0
   },
   "labelled": {
-    "total": 1902,
-    "pathogenic": 1611,
-    "benign": 291
+    "total": 1886,
+    "pathogenic": 1598,
+    "benign": 288
   },
-  "vus": 16883
+  "vus": 16860
 }

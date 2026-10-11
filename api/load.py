@@ -17,8 +17,9 @@ WT_PDB_NAME = "ACTC1_R39H_wt.pdb"
 MUTANT_PDB_NAME = "ACTC1_R39H_mutant.pdb"
 
 SPLIT_CAVEAT = (
-    "The training dropna was not applied because the feature matrix is absent. "
-    "Group membership is computed from variants_labelled.csv with gene_level_split."
+    "The feature matrix is absent. "
+    "Group membership is computed from variants_labelled.csv with gene_level_split, "
+    "which holds the same pathogenic/benign rows the models train on."
 )
 
 
@@ -378,6 +379,7 @@ def _index_variants(frame: Any, cohort: str) -> tuple[dict[str, dict[str, Any]],
             "clinvar_uid": None if _na(uid_raw) else int(uid_raw),
             "variation_set": _text(row.get("variation_set")),
             "molecular_consequence_list": _text(row.get("molecular_consequence_list")),
+            "spdi": _text(row.get("spdi")),
         }
         records.append(record)
         bucket = counts.setdefault(gene, {})
@@ -446,13 +448,18 @@ def _compute_split(catalog: Catalog) -> None:
         return
     try:
         if catalog.feature_frame is not None and catalog.feature_cols is not None:
-            numeric_boolean, _categorical = catalog.model_feature_groups or ([], [])
-            subset = [name for name in numeric_boolean if name != "conservation_score"] + ["label"]
-            missing = [name for name in subset + ["gene_symbol"] if name not in catalog.feature_frame.columns]
+            missing = [
+                name for name in catalog.feature_cols + ["label", "gene_symbol"]
+                if name not in catalog.feature_frame.columns
+            ]
             if missing:
                 catalog.split_error = "feature_matrix.csv is missing columns: " + ", ".join(missing)
                 return
-            filtered = catalog.feature_frame.dropna(subset=subset).reset_index(drop=True)
+            # Same row selection as training (src.modeling.train_classifier.training_rows):
+            # missing feature values are imputed in the pipeline, so no rows are dropped.
+            from src.modeling.train_classifier import training_rows
+
+            filtered = training_rows(catalog.feature_frame)
             train_df, test_df = catalog.gene_level_split(filtered)
             catalog.split = _split_info("feature_matrix.csv", None, train_df, test_df, filtered, test_df)
         elif getattr(catalog, "_labelled_frame", None) is not None:
