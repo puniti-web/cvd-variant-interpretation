@@ -8,6 +8,8 @@ Joins each variant (Step 2 output) with:
   - UniProt domain / site / disorder annotations (fetch_uniprot.py)
   - AlphaFold structural context: pLDDT, RSA, contacts, secondary
     structure (structure_features.py)
+  - FoldX stability change, foldx_ddg (src/structure/foldx_ddg.py), when
+    data/raw/foldx_ddg.csv exists; NaN for variants that were not modelled
 
 Published predictor scores from VEP (SIFT, PolyPhen-2, AlphaMissense,
 REVEL) are carried along as columns for baseline comparison only. The
@@ -42,6 +44,7 @@ ID_COLUMNS = ["clinvar_uid", "gene_symbol", "panel", "position", "wt_aa", "mut_a
 VEP_CONSERVATION = ["phylop", "phastcons", "gerp"]
 BASELINE_SCORES = ["sift_score", "polyphen_score", "alphamissense", "revel"]
 STRUCTURE_COLUMNS = ["plddt", "rsa", "contact_count", "sec_struct"]
+DDG_KEYS = ["gene_symbol", "position", "wt_aa", "mut_aa"]
 
 
 def load_uniprot() -> dict:
@@ -75,7 +78,12 @@ def sequence_features(variants: pd.DataFrame, uniprot: dict) -> pd.DataFrame:
     return pd.DataFrame(rows, index=variants.index)
 
 
-def build(variants: pd.DataFrame, uniprot: dict, vep: pd.DataFrame, structure: pd.DataFrame) -> pd.DataFrame:
+def load_ddg() -> pd.DataFrame:
+    return load_optional_csv(RAW_DIR / "foldx_ddg.csv", DDG_KEYS + ["foldx_ddg"])[DDG_KEYS + ["foldx_ddg"]]
+
+
+def build(variants: pd.DataFrame, uniprot: dict, vep: pd.DataFrame, structure: pd.DataFrame,
+          ddg: pd.DataFrame) -> pd.DataFrame:
     df = variants[[c for c in ID_COLUMNS if c in variants.columns]].copy()
     df = pd.concat([df, sequence_features(variants, uniprot)], axis=1)
 
@@ -83,16 +91,18 @@ def build(variants: pd.DataFrame, uniprot: dict, vep: pd.DataFrame, structure: p
     df = df.merge(structure[["gene_symbol", "position"] + STRUCTURE_COLUMNS], on=["gene_symbol", "position"], how="left")
     df["has_structure"] = df["plddt"].notna()
     df["sec_struct"] = df["sec_struct"].fillna("unknown")
+    df = df.merge(ddg.astype({"position": int}), on=DDG_KEYS, how="left")
+    df["foldx_ddg"] = df["foldx_ddg"].astype(float)
     return df
 
 
 @lru_cache(maxsize=1)
-def _cached_sources() -> tuple[dict, pd.DataFrame, pd.DataFrame]:
+def _cached_sources() -> tuple[dict, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     vep = load_optional_csv(RAW_DIR / "vep_annotations.csv", ["spdi"] + VEP_CONSERVATION + BASELINE_SCORES)
     structure = load_optional_csv(
         RAW_DIR / "alphafold_residue_features.csv", ["gene_symbol", "position"] + STRUCTURE_COLUMNS
     )
-    return load_uniprot(), vep, structure
+    return load_uniprot(), vep, structure, load_ddg()
 
 
 def features_for_variant(record: dict) -> dict:
@@ -101,9 +111,9 @@ def features_for_variant(record: dict) -> dict:
     mut_aa, panel, optional spdi), computed exactly as for the training
     matrix. Used by the API for per-variant predictions.
     """
-    uniprot, vep, structure = _cached_sources()
+    uniprot, vep, structure, ddg = _cached_sources()
     variant = pd.DataFrame([{c: record.get(c) for c in ID_COLUMNS}])
-    return build(variant, uniprot, vep, structure).iloc[0].to_dict()
+    return build(variant, uniprot, vep, structure, ddg).iloc[0].to_dict()
 
 
 def coverage_report(df: pd.DataFrame) -> pd.DataFrame:
@@ -125,8 +135,9 @@ def main():
     structure = load_optional_csv(
         RAW_DIR / "alphafold_residue_features.csv", ["gene_symbol", "position"] + STRUCTURE_COLUMNS
     )
+    ddg = load_ddg()
 
-    labelled = build(pd.read_csv(labelled_path), uniprot, vep, structure)
+    labelled = build(pd.read_csv(labelled_path), uniprot, vep, structure, ddg)
     labelled.to_csv(FEATURES_DIR / "feature_matrix.csv", index=False)
     coverage = coverage_report(labelled)
     coverage.to_csv(FEATURES_DIR / "feature_coverage.csv", index=False)
@@ -135,7 +146,7 @@ def main():
 
     vus_path = PROCESSED_DIR / "variants_vus.csv"
     if vus_path.exists():
-        vus = build(pd.read_csv(vus_path), uniprot, vep, structure)
+        vus = build(pd.read_csv(vus_path), uniprot, vep, structure, ddg)
         vus.to_csv(FEATURES_DIR / "feature_matrix_vus.csv", index=False)
         print(f"VUS feature matrix: {vus.shape[0]} rows")
 
