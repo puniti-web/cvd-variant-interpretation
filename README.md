@@ -2,7 +2,10 @@
 
 A research prototype that classifies missense variants in inherited cardiac
 disease genes as pathogenic or benign, explains each prediction with SHAP, and
-(in later phases) adds protein-structure and stability evidence.
+adds protein-structure and FoldX stability evidence.
+
+**Project write-up: [docs/report.md](docs/report.md)** (methods, results,
+figures, database usage, limitations).
 
 Workflow:
 
@@ -43,6 +46,7 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | 5 | Structure and stability (FoldX ΔΔG) | done |
 | 6 | Integrated report | done |
 | 7 | Frontend integration | done |
+| 8 | Write-up (`docs/report.md`, figures from `python -m src.report.figures`) | done |
 
 ## Data
 
@@ -80,7 +84,6 @@ Built by `src/features/build_feature_matrix.py` into
 | Group | Features | Source |
 | --- | --- | --- |
 | Substitution | Δ hydrophobicity, Δ molecular weight, Δ volume, Δ charge, polarity change, Pro/Gly gain or loss, BLOSUM62, Grantham distance | amino-acid property tables |
-| Position | relative position in the protein | UniProt sequence length |
 | Ortholog conservation | fraction of 60 vertebrate orthologs keeping the human residue; fraction already carrying the mutant residue | UniProtKB orthologs, BLOSUM62 global alignment |
 | Genomic conservation | phyloP 100-way, phastCons 100-way, GERP++ | Ensembl VEP REST (dbNSFP) |
 | Annotation | in structured domain, in transmembrane segment, at functional site, distance to nearest site, in disordered region, in coiled coil | UniProt |
@@ -394,7 +397,8 @@ src/modeling/               training and evaluation
 src/explainability/         SHAP
 src/structure/              FoldX ΔΔG pipeline (phase 5)
 scripts/aws/                EC2 user data for the FoldX run
-src/report/                 integrated variant report (phase 6)
+src/report/                 integrated variant report (phase 6), report figures
+docs/                       project write-up and figures (phase 8)
 data/processed/             labelled and VUS variant tables (tracked)
 data/raw, data/features     generated, gitignored
 outputs/                    models, plots, metrics (gitignored)
