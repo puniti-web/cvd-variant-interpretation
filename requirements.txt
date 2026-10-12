@@ -19,9 +19,5 @@ shap>=0.44
 # Plotting
 matplotlib>=3.7
 
-# Streamlit frontend (app.py)
-streamlit>=1.30
-streamlit-molstar>=0.4
-
 # Tests
 pytest>=7.0

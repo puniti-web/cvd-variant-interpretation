@@ -297,7 +297,6 @@ pytest -q
   - **Bench:** the held-out-gene split models, checked against the scores
     saved at training time (`metrics.json` `held_out_split`) rather than old
     README literals.
-- `app.py`: earlier Streamlit prototype (`streamlit run app.py`).
 
 ## Stability (FoldX ΔΔG)
 
