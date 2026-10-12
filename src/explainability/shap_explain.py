@@ -68,6 +68,7 @@ FEATURE_LABELS = {
     "plddt": ("AlphaFold confidence (pLDDT)", "{:.0f}"),
     "rsa": ("Relative solvent accessibility", "{:.0%}"),
     "contact_count": ("Residue packing (C-alpha contacts within 10 A)", "{:.0f}"),
+    "foldx_ddg": ("FoldX stability change (ddG)", "{:+.2f} kcal/mol"),
     "dist_to_functional_site": ("Distance to nearest functional site", "{:.0f} residues"),
     "polarity_change": ("Polarity class changes", None),
     "wt_is_proline": ("Wild-type residue is proline", None),
@@ -97,6 +98,7 @@ EXPECTED_DIRECTION = {
     "rsa": -1,
     "plddt": +1,
     "contact_count": +1,
+    "foldx_ddg": +1,
     "in_disordered_region": -1,
 }
 
@@ -336,8 +338,8 @@ def main():
     for feature, r in checks.items():
         print(f"  {feature:22s} expected {r['expected']:20s} rho {r['spearman_rho']:+.2f}  "
               f"{'as expected' if r['consistent'] else 'differs (see note)'}")
-    print("  Features that differ are strongly correlated with a stronger feature (GERP with phyloP,\n"
-          "  contact count with solvent accessibility, Grantham with BLOSUM62); the trees use them\n"
+    print("  Features that differ are strongly correlated with a stronger feature (GERP and phastCons\n"
+          "  with phyloP, contact count with solvent accessibility, Grantham with BLOSUM62); the trees use them\n"
           "  as residual corrections, so their marginal direction is not interpretable on its own.")
 
     ranked = rank_vus(model, calibrated)

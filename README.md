@@ -23,7 +23,7 @@ Classifier (Logistic Regression / Random Forest / XGBoost), gene-grouped CV
 SHAP explanations (global + per variant)
         │
         ▼
-Structure + stability (FoldX ΔΔG)              ← phase 5, not started
+Structure + stability (FoldX ΔΔG, run on AWS EC2)
         │
         ▼
 Integrated variant report                      ← phase 6, not started
@@ -40,7 +40,7 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | 2 | Feature set v2 | done |
 | 3 | Modeling and evaluation | done |
 | 4 | Explainability | done |
-| 5 | Structure and stability (FoldX) | to be discussed |
+| 5 | Structure and stability (FoldX ΔΔG) | done |
 | 6 | Integrated report | planned |
 | 7 | Frontend integration | planned |
 
@@ -85,6 +85,7 @@ Built by `src/features/build_feature_matrix.py` into
 | Genomic conservation | phyloP 100-way, phastCons 100-way, GERP++ | Ensembl VEP REST (dbNSFP) |
 | Annotation | in structured domain, in transmembrane segment, at functional site, distance to nearest site, in disordered region, in coiled coil | UniProt |
 | Structure | pLDDT, relative solvent accessibility, Cα contact count, secondary structure | AlphaFold DB model |
+| Stability | FoldX ΔΔG (mutant − wild type, kcal/mol) | FoldX 5.1 on the AlphaFold model, see below |
 
 Raw residue position is no longer a feature: residue 400 means nothing
 comparable across proteins. AlphaFold DB has no single full-length model
@@ -107,18 +108,18 @@ saw a variant from it.
 
 | Model | ROC-AUC [95% CI] | PR-AUC | MCC | Balanced acc. | Recall | Specificity |
 | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.910 [0.884–0.932] | 0.976 | 0.624 | 0.849 | 0.903 | 0.795 |
-| Random Forest | 0.885 [0.854–0.915] | 0.960 | 0.654 | 0.797 | 0.969 | 0.625 |
-| XGBoost | 0.890 [0.861–0.918] | 0.967 | 0.614 | 0.836 | 0.911 | 0.760 |
+| Logistic Regression | 0.910 [0.884–0.932] | 0.976 | 0.621 | 0.848 | 0.902 | 0.795 |
+| Random Forest | 0.889 [0.859–0.918] | 0.962 | 0.636 | 0.787 | 0.968 | 0.608 |
+| XGBoost | 0.893 [0.865–0.919] | 0.969 | 0.642 | 0.858 | 0.907 | 0.809 |
 
 **Within-gene** (5-fold, 5 repeats, genes shared between train and test),
 for comparison:
 
 | Model | ROC-AUC [95% CI] | PR-AUC | MCC | Balanced acc. | Recall | Specificity |
 | --- | --- | --- | --- | --- | --- | --- |
-| Logistic Regression | 0.926 [0.906–0.946] | 0.982 | 0.649 | 0.863 | 0.908 | 0.817 |
-| Random Forest | 0.929 [0.909–0.951] | 0.982 | 0.737 | 0.853 | 0.970 | 0.735 |
-| XGBoost | 0.931 [0.913–0.954] | 0.983 | 0.687 | 0.873 | 0.926 | 0.819 |
+| Logistic Regression | 0.925 [0.906–0.946] | 0.982 | 0.647 | 0.862 | 0.907 | 0.816 |
+| Random Forest | 0.929 [0.908–0.952] | 0.982 | 0.734 | 0.852 | 0.969 | 0.734 |
+| XGBoost | 0.932 [0.914–0.954] | 0.983 | 0.689 | 0.873 | 0.927 | 0.819 |
 
 The small gap between the two tables means the models are not leaning on
 gene identity. Logistic regression generalises best to unseen genes;
@@ -142,13 +143,15 @@ ClinVar variants are optimistic and not a fair comparison.
 
 | Removed | Logistic regression | XGBoost |
 | --- | --- | --- |
-| all features | 0.910 | 0.890 |
-| without conservation | 0.803 | 0.800 |
-| without structure | 0.888 | 0.861 |
-| without annotation | 0.914 | 0.898 |
-| without panel | 0.904 | 0.899 |
+| all features | 0.910 | 0.893 |
+| without conservation | 0.810 | 0.806 |
+| without structure (incl. ΔΔG) | 0.888 | 0.861 |
+| without FoldX ΔΔG only | 0.910 | 0.890 |
+| without annotation | 0.915 | 0.902 |
+| without panel | 0.904 | 0.903 |
 
-Conservation carries most of the signal, with structure second. UniProt
+Conservation carries most of the signal, with structure second. FoldX ΔΔG
+adds little on top of the other structural features (see Stability). UniProt
 annotation features add little once conservation and structure are present.
 `relative_position` was dropped after this kind of comparison showed it
 lowered leave-one-gene-out ROC-AUC for all three models. Choosing features
@@ -175,14 +178,14 @@ Global importance (mean |SHAP|, `outputs/shap_global_bar.png` and
 
 | Rank | Feature | mean \|SHAP\| |
 | --- | --- | --- |
-| 1 | Residue kept in vertebrate orthologs | 0.99 |
-| 2 | Genomic conservation (phyloP) | 0.70 |
-| 3 | AlphaFold confidence (pLDDT) | 0.50 |
+| 1 | Residue kept in vertebrate orthologs | 0.95 |
+| 2 | Genomic conservation (phyloP) | 0.72 |
+| 3 | AlphaFold confidence (pLDDT) | 0.45 |
 | 4 | Genomic conservation (GERP++) | 0.44 |
-| 5 | Relative solvent accessibility | 0.44 |
-| 6 | Gene panel | 0.33 |
-| 7 | Change in molecular weight | 0.28 |
-| 8 | Mutant residue seen in orthologs | 0.25 |
+| 5 | FoldX stability change (ΔΔG) | 0.40 |
+| 6 | Relative solvent accessibility | 0.35 |
+| 7 | Gene panel | 0.29 |
+| 8 | Change in molecular weight | 0.24 |
 
 **Direction check.** For features whose effect is known from biology, the
 Spearman correlation between feature value and SHAP value should have the
@@ -190,14 +193,18 @@ expected sign (`outputs/shap_direction_check.json`):
 
 | Feature | Expected | ρ | Matches |
 | --- | --- | --- | --- |
-| phylop | towards pathogenic | +0.87 | yes |
-| phastcons | towards pathogenic | +0.63 | yes |
-| gerp | towards pathogenic | -0.58 | no |
-| conservation_score | towards pathogenic | +0.84 | yes |
-| mut_aa_in_orthologs | towards benign | -0.56 | yes |
-| blosum62 | towards benign | -0.89 | yes |
+| phylop | towards pathogenic | +0.86 | yes |
+| phastcons | towards pathogenic | -0.36 | no |
+| gerp | towards pathogenic | -0.59 | no |
+| conservation_score | towards pathogenic | +0.88 | yes |
+| mut_aa_in_orthologs | towards benign | -0.52 | yes |
+| blosum62 | towards benign | -0.90 | yes |
 | grantham | towards pathogenic | -0.17 | no |
 | rsa | towards benign | -0.85 | yes |
+| plddt | towards pathogenic | +0.87 | yes |
+| contact_count | towards pathogenic | -0.78 | no |
+| foldx_ddg | towards pathogenic | +0.54 | yes |
+| in_disordered_region | towards benign | -0.51 | yes |
 | plddt | towards pathogenic | +0.90 | yes |
 | contact_count | towards pathogenic | -0.72 | no |
 | in_disordered_region | towards benign | -0.52 | yes |
@@ -278,6 +285,44 @@ pytest -q
   `web/README_FRONTEND.md` and `api/API_CONTRACT.md`. Start both with `dev.ps1`.
 - `app.py`: earlier Streamlit prototype (`streamlit run app.py`).
 
+## Stability (FoldX ΔΔG)
+
+`src/structure/foldx_ddg.py` computes the FoldX 5.1 stability change for
+every variant at a confidently modelled residue:
+
+- Only residues with AlphaFold pLDDT ≥ 70 are modelled (8,984 of 18,746
+  variants, 1,268 of them labelled). Others get no ΔΔG and the classifier
+  imputes it. RYR2 has no single AlphaFold model.
+- Residues with pLDDT < 50 are removed. Proteins over 700 residues are cut
+  into 300-residue cores plus every residue within 12 Å (Cα) of the core,
+  so each variant keeps its full local environment.
+- `RepairPDB` once per chunk (39 chunks), then `BuildModel` with one run per
+  variant. On a 10-variant test, three runs changed ΔΔG by at most
+  0.07 kcal/mol.
+
+The run takes about 15 core-hours. It ran on one `m7a.8xlarge` Spot instance
+(32 cores) in 30 minutes, using `scripts/aws/foldx_instance.sh` as user data:
+the instance pulls FoldX and the inputs from a private S3 bucket, syncs
+results back every 5 minutes (a restarted run resumes) and terminates
+itself. All 8,984 variants returned a value.
+
+```bash
+python -m src.structure.foldx_ddg prepare     # chunks + mutation batches
+python -m src.structure.foldx_ddg package     # data/raw/foldx_work.tar.gz for upload
+python3 foldx_ddg.py run --foldx <binary>     # on the compute machine
+python -m src.structure.foldx_ddg collect     # -> data/raw/foldx_ddg.csv
+```
+
+FoldX needs an academic licence; the binary is not in this repository.
+
+Result: median ΔΔG is 1.13 kcal/mol for pathogenic and 0.41 for benign
+variants. On its own ΔΔG reaches ROC-AUC 0.68 on the labelled variants it
+covers. In the model it is the fifth most important feature by SHAP and
+points the expected way (higher ΔΔG towards pathogenic), but leave-one-gene-out
+ROC-AUC moves by only +0.003 (XGBoost, RF) and 0.000 (logistic regression),
+well inside the confidence intervals. Most of what ΔΔG captures is already
+present in solvent accessibility, packing and conservation.
+
 ## Project layout
 
 ```text
@@ -287,7 +332,8 @@ src/preprocessing/          parsing, labelling, QC
 src/features/               feature engineering
 src/modeling/               training and evaluation
 src/explainability/         SHAP
-src/structure/              structure and stability (phase 5)
+src/structure/              FoldX ΔΔG pipeline (phase 5)
+scripts/aws/                EC2 user data for the FoldX run
 src/report/                 integrated report (phase 6)
 data/processed/             labelled and VUS variant tables (tracked)
 data/raw, data/features     generated, gitignored
@@ -302,4 +348,8 @@ outputs/                    models, plots, metrics (gitignored)
   but closer to performance on a gene the model has not seen.
 - Earlier structural proof of concept (ACTC1 R39H) renamed the residue without
   rebuilding side chains, so its 0.00 Å RMSD carries no biological meaning.
-  Phase 5 replaces it.
+  FoldX ΔΔG (phase 5) replaces it as the stability measure; the API still
+  shows the old proof of concept until phase 7.
+- FoldX ΔΔG is computed on predicted structures, single chains, and chunks
+  of large proteins. It ignores partner proteins and membranes, so variants
+  at interfaces (e.g. myosin-actin, channel tetramers) are underestimated.

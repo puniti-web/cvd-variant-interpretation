@@ -59,9 +59,16 @@ def run_train():
 
 
 def run_explain():
+    import sys
+
     from src.explainability import shap_explain
 
-    shap_explain.main()
+    # shap_explain parses its own CLI flags.
+    argv, sys.argv = sys.argv, [sys.argv[0]]
+    try:
+        shap_explain.main()
+    finally:
+        sys.argv = argv
 
 
 STAGES = {

@@ -67,6 +67,7 @@ NUMERIC_FEATURES = [
     "plddt",
     "rsa",
     "contact_count",
+    "foldx_ddg",
     "dist_to_functional_site",
 ]
 BOOLEAN_FEATURES = [

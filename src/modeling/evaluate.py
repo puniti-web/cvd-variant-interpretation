@@ -47,7 +47,8 @@ BASELINES = {"alphamissense": True, "revel": True, "polyphen_score": True, "sift
 # Feature groups for the ablation study (columns removed from the full set)
 ABLATION_GROUPS = {
     "conservation": ["conservation_score", "mut_aa_in_orthologs", "phylop", "phastcons", "gerp"],
-    "structure": ["plddt", "rsa", "contact_count", "has_structure", "sec_struct"],
+    "structure": ["plddt", "rsa", "contact_count", "has_structure", "sec_struct", "foldx_ddg"],
+    "stability": ["foldx_ddg"],
     "annotation": [
         "in_annotated_domain", "in_transmembrane", "in_functional_site",
         "dist_to_functional_site", "in_disordered_region", "in_coiled_coil",

@@ -39,8 +39,8 @@
     {
       "id": 7,
       "name": "Stability",
-      "status": "partial",
-      "note": "C\u03b1 RMSD is implemented. FoldX \u0394\u0394G is a stub.",
+      "status": "done",
+      "note": "FoldX 5.1 \u0394\u0394G for 8,984 variants at residues with pLDDT \u2265 70, used as a model feature. Per-variant API views still show the old RMSD proof of concept.",
       "parts": [
         {
           "name": "C\u03b1 RMSD",
@@ -48,7 +48,7 @@
         },
         {
           "name": "FoldX \u0394\u0394G",
-          "status": "stub"
+          "status": "done"
         }
       ]
     },
