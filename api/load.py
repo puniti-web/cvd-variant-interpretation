@@ -177,6 +177,9 @@ def _build() -> Catalog:
     else:
         pandas_error = None
 
+    from api.integration import artifact_specs
+
+    specs += artifact_specs()
     for key, path in specs:
         catalog.artifacts.append(_load_one(catalog, key, path, pd, pandas_error))
 
@@ -317,7 +320,8 @@ def _ingest(catalog: Catalog, key: str, path: Path, pd: Any) -> None:
         catalog.models["xgb"] = _load_joblib(path)
         catalog.model_reasons["xgb"] = None
         return
-    if key in {"shap_global_plot", "actc1_wt_pdb", "actc1_mutant_pdb"}:
+    if key in {"shap_global_plot", "actc1_wt_pdb", "actc1_mutant_pdb", "alphafold_manifest",
+               "alphafold_residues", "foldx_ddg", "vus_report", "metrics"}:
         ok, err = _readable(path)
         if not ok:
             raise OSError(err or "unreadable file")

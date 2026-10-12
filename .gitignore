@@ -27,7 +27,7 @@ data/raw/
 data/features/
 
 # Model artifacts
-models/
+/models/
 *.pkl
 *.joblib
 

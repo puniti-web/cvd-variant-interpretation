@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../../api/client.ts'
-import type { Page, VariantSummary, VusSummary } from '../../api/types.ts'
+import type { Page, VariantSummary, VusRanking, VusSummary } from '../../api/types.ts'
 import { CaseFile } from '../../components/CaseFile.tsx'
 import { ClassMark, EmptyState, PageIntro, QueryGate } from '../../components/ui.tsx'
 import { caseLabel, splitWord } from '../../lib/format.ts'
@@ -47,7 +47,7 @@ export function ExplorePage() {
       <PageIntro
         kicker="Explorer"
         title="Open a case file."
-        lede="Labelled variants sit in the training split. VUS stay held out. Filters combine."
+        lede="Labelled variants sit in the training split. VUS stay held out and are listed by model support for pathogenicity, strongest first. Filters combine."
       />
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Catalog">
         <button
@@ -214,6 +214,20 @@ function ResultList({
   )
 }
 
+function RankingLine({ ranking }: { ranking: VusRanking }) {
+  const ddg =
+    ranking.foldx_ddg == null
+      ? 'no ΔΔG'
+      : `ΔΔG ${ranking.foldx_ddg > 0 ? '+' : ''}${ranking.foldx_ddg.toFixed(2)} (${ranking.ddg_category})`
+  return (
+    <span className="mt-1 block text-xs">
+      <span className="font-mono">#{ranking.rank}</span> · {ranking.tier}
+      {ranking.probability != null ? ` · P ${ranking.probability.toFixed(2)}` : ''} · {ddg}
+      {ranking.evidence_informative ? ` · evidence ${ranking.evidence_agree}/${ranking.evidence_informative}` : ''}
+    </span>
+  )
+}
+
 function Card({ item, vus }: { item: VariantSummary | VusSummary; vus: boolean }) {
   return (
     <span className="flex flex-wrap items-start justify-between gap-2">
@@ -225,11 +239,12 @@ function Card({ item, vus }: { item: VariantSummary | VusSummary; vus: boolean }
         {vus && 'predictions_reason' in item && item.predictions == null ? (
           <span className="mt-1 block text-xs text-mute">Scores not computed. {item.predictions_reason}</span>
         ) : null}
+        {vus && 'ranking' in item && item.ranking ? <RankingLine ranking={item.ranking} /> : null}
       </span>
       <span className="flex flex-col items-end gap-1 text-sm">
         <ClassMark label={item.label} />
         {!vus && 'split' in item ? <span>{item.split ? splitWord(item.split) : 'Split not computed'}</span> : null}
-        {!vus && 'has_structure' in item && item.has_structure ? <span>Structure pair</span> : null}
+        {!vus && 'has_structure' in item && item.has_structure ? <span>AlphaFold model</span> : null}
       </span>
     </span>
   )

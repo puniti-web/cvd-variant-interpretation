@@ -12,6 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from api import integration
 from api.load import Catalog, get_catalog
 from api.schemas import absent, maybe
 
@@ -32,63 +33,59 @@ ESMFOLD_NOTE = (
     "That endpoint timed out during the project. This API does not call it. "
     "The proof-of-concept PDBs are not ESMFold models."
 )
-DDG_REASON = (
-    "FoldX BuildModel is not implemented in src/structure/stability_analysis.py. "
-    "ΔΔG was not computed."
-)
+DDG_REASON = "FoldX ΔΔG was not computed for this variant."
 OTHER_STRUCTURE_REASON = "Structural proof-of-concept is implemented only for ACTC1_R39H."
 OTHER_STABILITY = "Structural comparison was not run for this variant. ΔΔG was not computed."
+ALPHAFOLD_NOTE = (
+    "Wild-type AlphaFold DB model with the variant residue focused. FoldX BuildModel was run "
+    "without saving mutant coordinates (src/structure/foldx_ddg.py), so there is no mutant model "
+    "and no RMSD; the stability effect is the FoldX ΔΔG."
+)
+RMSD_REASON = (
+    "No mutant coordinates: FoldX ΔΔG replaces the RMSD comparison, and an AlphaFold-style "
+    "prediction barely moves for a single substitution."
+)
 KNOWN_STRUCTURE_NOTE = (
     "fetch_structures keeps a single structure per gene (first RCSB hit, else AlphaFold DB). "
     "This is not a complete PDB list."
 )
 CONSERVATION_METHOD = (
-    "Homolog-identity proxy from src/features/build_conservation_scores.py. "
-    "Not ConSurf, phyloP, or phastCons."
+    "Fraction of 60 vertebrate UniProtKB orthologs (one per species, BLOSUM62 global alignment) "
+    "that keep the human residue, from src/features/build_conservation_scores.py. phyloP, "
+    "phastCons and GERP++ from Ensembl VEP are separate model features."
 )
 SHAP_NOTE = (
     "Mean |SHAP| on the labelled matrix after the training row filter, train and test genes together. "
     "The saved PNG is XGBoost-only and drops rows with a missing conservation score."
 )
-REPORTED_SOURCE = "README.md and app.py ML page literals; not recomputed"
+REPORTED_SOURCE = "outputs/metrics.json held_out_split, written by src/modeling/train_classifier.py"
 ABLATION_REASON = (
     "No ablation has been run. outputs/ablation_results.json is not present. "
     "This endpoint does not train."
 )
 ABLATION_PLAN = {
-    "sets": [
-        "A_physchem",
-        "B_physchem_conservation",
-        "C_physchem_conservation_domain",
-    ],
-    "position": ["with_position", "without_position"],
+    "sets": ["conservation", "structure", "stability", "annotation", "panel"],
+    "position": ["relative_position dropped after an earlier ablation"],
     "note": (
-        "The current model also includes panel, which is constant per gene. "
-        "domain_type is not a model input; the domain feature in set C is in_annotated_domain. "
-        "Gene-level split and class weighting stay as in train_classifier.py."
+        "Each set is removed from the full feature list and the model re-scored with "
+        "leave-one-gene-out cross-validation (src/modeling/evaluate.py). "
+        "structure includes FoldX ΔΔG; stability is ΔΔG alone."
     ),
 }
-REPORTED = {
-    "source": REPORTED_SOURCE,
-    "random_forest": {
-        "accuracy": 0.622,
-        "precision": 0.647,
-        "recall": 0.887,
-        "f1": 0.748,
-        "roc_auc": 0.588,
-        "pr_auc": 0.706,
-        "confusion_matrix": [[6, 30], [7, 55]],
-    },
-    "xgboost": {
-        "accuracy": 0.633,
-        "precision": 0.686,
-        "recall": 0.774,
-        "f1": 0.727,
-        "roc_auc": 0.559,
-        "pr_auc": 0.703,
-        "confusion_matrix": [[14, 22], [14, 48]],
-    },
-}
+REPORTED_KEYS = ("accuracy", "precision", "recall", "f1", "roc_auc", "pr_auc", "confusion_matrix")
+
+
+def _reported() -> dict[str, Any] | None:
+    """Held-out split scores saved at training time, or None for an older metrics.json."""
+    saved = (integration.metrics() or {}).get("held_out_split")
+    if not saved:
+        return None
+    return {
+        "source": REPORTED_SOURCE,
+        "random_forest": {k: saved["random_forest"][k] for k in REPORTED_KEYS},
+        "xgboost": {k: saved["xgboost"][k] for k in REPORTED_KEYS},
+    }
+
 
 PHYS_KEYS = [
     "delta_hydrophobicity",
@@ -344,9 +341,10 @@ def metrics_payload(catalog: Catalog) -> dict[str, Any]:
 
     payload: dict[str, Any] = {
         "split": split_block,
-        "reported": REPORTED,
+        "reported": _reported(),
         "recomputed": None,
         "comparison": None,
+        "cross_validation": _cross_validation(),
         "reason": None,
     }
     if blockers:
@@ -362,11 +360,48 @@ def metrics_payload(catalog: Catalog) -> dict[str, Any]:
         payload["reason"] = f"Metrics could not be recomputed: {exc}"
         return payload
     payload["recomputed"] = recomputed
+    reported = payload["reported"]
+    if reported is None:
+        # metrics.json predates held_out_split: show the recomputed values as reported.
+        payload["reported"] = {
+            "source": "outputs/metrics.json has no held_out_split; showing the recomputed values",
+            "random_forest": {k: recomputed["random_forest"][k] for k in REPORTED_KEYS},
+            "xgboost": {k: recomputed["xgboost"][k] for k in REPORTED_KEYS},
+        }
+        return payload
     payload["comparison"] = {
-        "random_forest": _compare(recomputed["random_forest"], REPORTED["random_forest"]),
-        "xgboost": _compare(recomputed["xgboost"], REPORTED["xgboost"]),
+        "random_forest": _compare(recomputed["random_forest"], reported["random_forest"]),
+        "xgboost": _compare(recomputed["xgboost"], reported["xgboost"]),
     }
     return payload
+
+
+def _cross_validation() -> dict[str, Any] | None:
+    """Headline evaluation from outputs/metrics.json (leave-one-gene-out, bootstrap CIs)."""
+    saved = integration.metrics()
+    if not saved or "gene_grouped_cv" not in saved:
+        return None
+
+    def table(block: dict[str, Any]) -> dict[str, Any]:
+        out = {}
+        for model, values in block.items():
+            out[model] = {
+                metric: {"mean": stats.get("mean"), "ci95": stats.get("ci95")}
+                for metric, stats in values.items()
+                if isinstance(stats, dict)
+            }
+        return out
+
+    return {
+        "scheme": saved.get("cv"),
+        "n_variants": saved.get("n_variants"),
+        "n_genes": saved.get("n_genes"),
+        "best_model": saved.get("best_model_gene_grouped"),
+        "gene_grouped": table(saved["gene_grouped_cv"]),
+        "within_gene": table(saved.get("within_gene_cv", {})),
+        "baselines": saved.get("baselines"),
+        "per_gene": saved.get("per_gene"),
+    }
 
 
 def _evaluate_model(catalog: Catalog, model_key: str, display_name: str) -> dict[str, Any]:
@@ -651,6 +686,10 @@ def list_vus(
     if catalog.vus is None:
         return _empty_page(page, page_size, catalog.vus_reason or "data/processed/variants_vus.csv is not loaded.")
     rows = [row for row in catalog.vus.values() if _matches(row, q=q, gene=gene, label=None, split=None, catalog=catalog)]
+    ranking = integration.vus_ranking()
+    if ranking:
+        # Phase 6 order: most model support for pathogenicity first.
+        rows.sort(key=lambda row: (ranking.get(row["variant_id"]) or {}).get("rank") or float("inf"))
     page_rows, total = _slice(rows, page, page_size)
     return {
         "page": page,
@@ -746,6 +785,24 @@ def _vus_summary(catalog: Catalog, row: dict[str, Any]) -> dict[str, Any]:
         "protein_change": row.get("protein_change"),
         "predictions": predictions,
         "predictions_reason": predictions_reason,
+        "ranking": _vus_ranking(row["variant_id"]),
+    }
+
+
+def _vus_ranking(variant_id: str) -> dict[str, Any] | None:
+    row = integration.vus_ranking().get(variant_id)
+    if row is None:
+        return None
+    return {
+        "rank": row.get("rank"),
+        "probability": row.get("probability"),
+        "calibrated_probability": row.get("calibrated_probability"),
+        "tier": row.get("tier"),
+        "foldx_ddg": row.get("foldx_ddg"),
+        "ddg_category": row.get("ddg_category"),
+        "evidence_agree": row.get("evidence_agree"),
+        "evidence_informative": row.get("evidence_informative"),
+        "top_reasons": row.get("top_reasons"),
     }
 
 
@@ -770,7 +827,9 @@ def _vus_predictions(catalog: Catalog, inputs: "Inputs") -> tuple[dict[str, Any]
 
 
 def _has_structure(catalog: Catalog, variant_id: str) -> bool:
-    return variant_id == POC_VARIANT_ID and catalog.pdb_wt_present and catalog.pdb_mut_present
+    if variant_id == POC_VARIANT_ID and catalog.pdb_wt_present and catalog.pdb_mut_present:
+        return True
+    return integration.alphafold_model(variant_id.split("_", 1)[0]) is not None
 
 
 @dataclass
@@ -1240,22 +1299,62 @@ def _dense_transform(model: Any, frame: Any) -> Any:
     return np.asarray(transformed)[0]
 
 
+def _stability(record: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    gene, position = record["gene_symbol"], int(record["position"])
+    value = integration.foldx_ddg(gene, position, record["wt_aa"], record["mut_aa"])
+    category = integration.ddg_category(value)
+    if value is None:
+        return absent(integration.ddg_reason(gene, position)), category
+    return maybe(round(value, 3)), category
+
+
+def _alphafold_structure(catalog: Catalog, record: dict[str, Any], known: dict[str, Any]) -> dict[str, Any]:
+    gene, position = record["gene_symbol"], int(record["position"])
+    ddg, category = _stability(record)
+    model = integration.alphafold_model(gene)
+    base = {
+        "variant_id": record["variant_id"],
+        "poc": None,
+        "rmsd_angstrom": absent(RMSD_REASON),
+        "ddg": ddg,
+        "ddg_category": category,
+        "esmfold_note": ESMFOLD_NOTE,
+        "known_structures": known,
+    }
+    if model is None:
+        reason = f"No AlphaFold model: {integration.alphafold_status(gene)}"
+        return {**base, "has_structure": False, "reason": reason, "files": None, "method_note": None,
+                "model": None}
+    url = f"/files/pdb/{model['name']}"
+    return {
+        **base,
+        "has_structure": True,
+        "reason": None,
+        "files": {
+            "wt": {"name": model["name"], "present": True, "url": url},
+            "mutant": {"name": "not generated", "present": False, "url": None},
+        },
+        "method_note": ALPHAFOLD_NOTE,
+        "model": {
+            "source": "AlphaFoldDB",
+            "name": model["name"],
+            "source_url": model["source_url"],
+            "uniprot_id": model["uniprot_id"],
+            "chain": integration.ALPHAFOLD_CHAIN,
+            "residue": position,
+            "wt_aa": record["wt_aa"],
+            "mut_aa": record["mut_aa"],
+            "context": integration.residue(gene, position),
+        },
+    }
+
+
 def structure_payload(catalog: Catalog, record: dict[str, Any]) -> dict[str, Any]:
     known = _known_structures(catalog, record["gene_symbol"])
-    ddg = absent(DDG_REASON)
-    if record["variant_id"] != POC_VARIANT_ID:
-        return {
-            "variant_id": record["variant_id"],
-            "has_structure": False,
-            "reason": OTHER_STRUCTURE_REASON,
-            "poc": None,
-            "files": None,
-            "rmsd_angstrom": absent("No mutant/WT PDB pair for this variant."),
-            "ddg": ddg,
-            "method_note": None,
-            "esmfold_note": ESMFOLD_NOTE,
-            "known_structures": known,
-        }
+    poc_ready = catalog.pdb_wt_present and catalog.pdb_mut_present
+    if record["variant_id"] != POC_VARIANT_ID or not poc_ready:
+        return _alphafold_structure(catalog, record, known)
+    ddg, category = _stability(record)
     wt_present = catalog.pdb_wt_present
     mut_present = catalog.pdb_mut_present
     files = {
@@ -1301,6 +1400,8 @@ def structure_payload(catalog: Catalog, record: dict[str, Any]) -> dict[str, Any
         "files": files,
         "rmsd_angstrom": rmsd,
         "ddg": ddg,
+        "ddg_category": category,
+        "model": None,
         "method_note": METHOD_NOTE,
         "esmfold_note": ESMFOLD_NOTE,
         "known_structures": known,
@@ -1316,6 +1417,8 @@ def unavailable_structure(variant_id: str, reason: str) -> dict[str, Any]:
         "files": None,
         "rmsd_angstrom": absent(reason),
         "ddg": absent(DDG_REASON),
+        "ddg_category": "not modelled",
+        "model": None,
         "method_note": None,
         "esmfold_note": ESMFOLD_NOTE,
         "known_structures": absent(reason),
@@ -1360,7 +1463,10 @@ def report_payload(catalog: Catalog, record: dict[str, Any]) -> dict[str, Any]:
     structure = structure_payload(catalog, record)
     inputs = build_inputs(catalog, record)
     rmsd_value = structure["rmsd_angstrom"]["value"]
-    stability = METHOD_NOTE if record["variant_id"] == POC_VARIANT_ID else OTHER_STABILITY
+    if structure["ddg"]["value"] is not None:
+        stability = f"FoldX ΔΔG {structure['ddg']['value']:+.2f} kcal/mol ({structure['ddg_category']})"
+    else:
+        stability = structure["ddg"]["reason"] or OTHER_STABILITY
     summaries = {}
     top_shap = {}
     for model_key, _reported_key, _title in MODEL_KEYS:
@@ -1382,7 +1488,12 @@ def report_payload(catalog: Catalog, record: dict[str, Any]) -> dict[str, Any]:
         agreement = "agree" if rf_label == xgb_label else "disagree"
     else:
         agreement = None
-    missing = [{"field": "predicted_ddg", "reason": DDG_REASON}]
+    missing = []
+    if structure["ddg"]["value"] is None:
+        missing.append({"field": "predicted_ddg", "reason": structure["ddg"]["reason"]})
+    integrated, integrated_reason = integration.integrated_report(record["variant_id"])
+    if integrated is None:
+        missing.append({"field": "integrated", "reason": integrated_reason})
     if detail["conservation_score"]["value"] is None:
         missing.append(
             {"field": "conservation_score", "reason": detail["conservation_score"]["reason"]}
@@ -1411,6 +1522,7 @@ def report_payload(catalog: Catalog, record: dict[str, Any]) -> dict[str, Any]:
         "structure": structure,
         "summaries": summaries,
         "interpretation": _interpretation(catalog, record, detail, structure),
+        "integrated": maybe(integrated) if integrated is not None else absent(integrated_reason),
         "missing": missing,
     }
     return body
@@ -1502,8 +1614,8 @@ def _interpretation(
     paragraphs.append(
         "The trained model uses panel as a feature. Panel is constant for every variant of a gene "
         f"({record.get('panel') or 'unknown'} for {record['gene_symbol']}), so it carries the "
-        "disease-panel base rate rather than a property of this substitution. The model also uses "
-        "position, an absolute residue index that is not comparable across proteins."
+        "disease-panel base rate rather than a property of this substitution. Residue position is "
+        "not a model input."
     )
     score = detail["conservation_score"]
     if score["value"] is not None:
@@ -1528,16 +1640,15 @@ def _interpretation(
                 f"P(pathogenic)={prediction['prob_pathogenic']:.3f} at the default 0.5 threshold. "
                 "This probability is not calibrated."
             )
-    if record["variant_id"] == POC_VARIANT_ID:
-        rmsd = structure["rmsd_angstrom"]
-        if rmsd["value"] is None:
-            paragraphs.append(f"{METHOD_NOTE} RMSD was not recomputed. {rmsd['reason']} {DDG_REASON}")
-        else:
-            paragraphs.append(
-                f"Recomputed Cα RMSD is {rmsd['value']} Å. {METHOD_NOTE} {DDG_REASON}"
-            )
+    ddg = structure["ddg"]
+    if ddg["value"] is not None:
+        paragraphs.append(
+            f"FoldX 5.1 predicts a stability change of {ddg['value']:+.2f} kcal/mol "
+            f"({structure['ddg_category']}) on the AlphaFold model. Values within about 1 kcal/mol "
+            "of zero are inside FoldX's error."
+        )
     else:
-        paragraphs.append(f"{OTHER_STABILITY} {DDG_REASON}")
+        paragraphs.append(f"No FoldX ΔΔG. {ddg['reason']}")
     paragraphs.append(DISCLAIMER)
     return "\n\n".join(paragraphs)
 
@@ -1556,11 +1667,17 @@ def unavailable_report(variant_id: str, reason: str) -> dict[str, Any]:
         "structure": unavailable_structure(variant_id, reason),
         "summaries": {"rf": absent(reason), "xgb": absent(reason)},
         "interpretation": f"{reason}\n\n{DISCLAIMER}",
+        "integrated": absent(reason),
         "missing": [{"field": "variant", "reason": reason}, {"field": "predicted_ddg", "reason": DDG_REASON}],
     }
 
 
 def render_markdown(body: dict[str, Any]) -> str:
+    integrated = (body.get("integrated") or {}).get("value")
+    if integrated and integrated.get("markdown"):
+        # The phase 6 report is the readable document; the raw payload follows.
+        payload = {k: v for k, v in body.items() if k != "integrated"}
+        return integrated["markdown"] + "\n\n## API payload\n\n" + _md_dump(payload) + "\n"
     lines = [
         f"# {body['variant_id']}",
         "",
@@ -1615,6 +1732,8 @@ def _md_dump(value: Any) -> str:
 def resolve_pdb(catalog: Catalog, name: str) -> Path | None:
     if not PDB_NAME.fullmatch(name):
         return None
+    if name.startswith("AF-"):
+        return integration.alphafold_path(name)
     root = catalog.outputs_dir.resolve()
     path = (root / name).resolve()
     if path.parent != root:

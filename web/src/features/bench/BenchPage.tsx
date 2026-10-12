@@ -48,30 +48,33 @@ export function BenchPage() {
         <QueryGate query={metrics}>
           {(data) => {
             const live = data.recomputed
+            const reported = data.reported
+            if (!live && !reported) return <Missing reason={data.reason} />
             const shown = live ?? {
-              random_forest: data.reported.random_forest,
-              xgboost: data.reported.xgboost,
+              random_forest: reported!.random_forest,
+              xgboost: reported!.xgboost,
             }
+            const baseline = reported ?? shown
             const mock = Boolean(live?.mock || live?.random_forest.mock)
             return (
               <div className="space-y-4">
                 <p className="text-sm text-mute">
                   {live
-                    ? 'The cards are the recomputed block. The line under each number is the published baseline.'
-                    : data.reason ?? 'Recomputed metrics were not returned. The cards are the published baseline.'}
+                    ? `Split models scored on the held-out genes${data.split.test_genes.value ? ` (${data.split.test_genes.value.join(', ')})` : ''}. The line under each number is the value saved at training time. The cross-validated headline numbers are on the Models page.`
+                    : data.reason ?? 'Recomputed metrics were not returned. The cards are the values saved at training time.'}
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <MetricCard
                     name="Random Forest"
                     metrics={shown.random_forest}
-                    baseline={data.reported.random_forest}
+                    baseline={baseline.random_forest}
                     mock={mock}
                     matched={data.comparison?.random_forest.all_matched}
                   />
                   <MetricCard
                     name="XGBoost"
                     metrics={shown.xgboost}
-                    baseline={data.reported.xgboost}
+                    baseline={baseline.xgboost}
                     mock={mock}
                     matched={data.comparison?.xgboost.all_matched}
                   />
@@ -267,7 +270,7 @@ function MetricCard({
         {mock ? <span className="ml-2 font-mono text-xs tracking-widest uppercase">Mock</span> : null}
       </h3>
       {matched != null ? (
-        <p className="text-xs text-mute">{matched ? 'Matches the published baseline at 3 decimals.' : 'Does not match the published baseline.'}</p>
+        <p className="text-xs text-mute">{matched ? 'Matches the saved training-time values at 3 decimals.' : 'Does not match the saved training-time values.'}</p>
       ) : null}
       <dl className="mt-2 space-y-1">
         {rows.map(([label, value, base]) => (
@@ -275,7 +278,7 @@ function MetricCard({
             <dt>{label}</dt>
             <dd className="text-right font-mono">
               {value == null ? 'Not computed' : value.toFixed(3)}
-              <span className="ml-2 text-xs text-mute">baseline {base == null ? '—' : base.toFixed(3)}</span>
+              <span className="ml-2 text-xs text-mute">saved {base == null ? '—' : base.toFixed(3)}</span>
             </dd>
           </div>
         ))}

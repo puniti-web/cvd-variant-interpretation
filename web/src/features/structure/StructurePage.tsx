@@ -89,7 +89,7 @@ export function StructurePage() {
   })
   return (
     <div className="space-y-5">
-      <PageIntro kicker="Structure" title={id ? caseLabel(id) : 'No case'} lede="Wild type, mutant, and an overlay. ΔΔG stays empty until FoldX exists." />
+      <PageIntro kicker="Structure" title={id ? caseLabel(id) : 'No case'} lede="The AlphaFold model of the protein with the variant residue in focus, and the FoldX stability change for the substitution." />
       {!id ? <EmptyState title="Missing case id" /> : <QueryGate query={query}>{(data) => <StructureBody data={data} />}</QueryGate>}
     </div>
   )
@@ -98,8 +98,14 @@ export function StructurePage() {
 function StructureBody({ data }: { data: StructurePayload }) {
   const urls = viewerUrls(data)
   const canView = Boolean(urls.wt || urls.mutant)
+  const focus = data.model
+    ? { chain: data.model.chain, residue: data.model.residue }
+    : data.poc
+      ? { chain: data.poc.chain, residue: data.poc.residue }
+      : null
   return (
     <div className="space-y-4">
+      {data.model ? <ModelCaption model={data.model} /> : null}
       {data.poc ? (
         <p className="text-sm">
           PDB {data.poc.pdb_id}, chain {data.poc.chain}, residue {data.poc.residue} {data.poc.wt_aa}→{data.poc.mut_aa}.{' '}
@@ -108,11 +114,18 @@ function StructureBody({ data }: { data: StructurePayload }) {
       ) : null}
       {data.method_note ? <p className="border border-dashed border-graphite p-3 text-sm">{data.method_note}</p> : null}
       <div className="grid gap-3 sm:grid-cols-2">
+        <Measure
+          label="FoldX ΔΔG (kcal/mol)"
+          value={data.ddg.value}
+          reason={data.ddg.reason}
+          mock={data.ddg.mock}
+          note={data.ddg.value != null && data.ddg_category ? `${data.ddg_category}; positive is destabilising` : undefined}
+          signed
+        />
         <Measure label="Cα RMSD (Å)" value={data.rmsd_angstrom.value} reason={data.rmsd_angstrom.reason} mock={data.rmsd_angstrom.mock} />
-        <Measure label="ΔΔG" value={data.ddg.value} reason={data.ddg.reason} mock={data.ddg.mock} />
       </div>
       {canView ? (
-        <Viewer urls={urls} chain={data.poc?.chain ?? null} residue={data.poc?.residue ?? null} />
+        <Viewer urls={urls} chain={focus?.chain ?? null} residue={focus?.residue ?? null} />
       ) : (
         <EmptyState title="No coordinates to load" detail={data.reason ?? 'This variant has no structure files.'} />
       )}
@@ -140,16 +153,42 @@ function StructureBody({ data }: { data: StructurePayload }) {
   )
 }
 
+function ModelCaption({ model }: { model: NonNullable<StructurePayload['model']> }) {
+  const ctx = model.context
+  return (
+    <div className="space-y-1 text-sm">
+      <p>
+        {model.source} model{' '}
+        <a className="font-mono underline" href={model.source_url} target="_blank" rel="noreferrer">
+          {model.name}
+        </a>
+        , chain {model.chain}, residue {model.residue} {model.wt_aa}→{model.mut_aa}.
+      </p>
+      {ctx ? (
+        <p className="font-mono text-xs text-mute">
+          pLDDT {ctx.plddt == null ? '—' : formatNumber(ctx.plddt, 0)} · solvent accessibility{' '}
+          {ctx.rsa == null ? '—' : `${Math.round(ctx.rsa * 100)}%`} · {ctx.sec_struct ?? 'secondary structure unknown'}
+          {ctx.contact_count == null ? '' : ` · ${ctx.contact_count} Cα contacts`}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function Measure({
   label,
   value,
   reason,
   mock,
+  note,
+  signed,
 }: {
   label: string
   value: number | null
   reason: string | null
   mock?: boolean
+  note?: string
+  signed?: boolean
 }) {
   return (
     <section className="border rule p-3">
@@ -157,7 +196,15 @@ function Measure({
         {label}
         {mock ? <MockTag /> : null}
       </h2>
-      {value == null ? <Missing reason={reason} /> : <p className="font-mono text-3xl">{formatNumber(value, 2)}</p>}
+      {value == null ? (
+        <Missing reason={reason} />
+      ) : (
+        <p className="font-mono text-3xl">
+          {signed && value > 0 ? '+' : ''}
+          {formatNumber(value, 2)}
+        </p>
+      )}
+      {note ? <p className="text-xs text-mute">{note}</p> : null}
     </section>
   )
 }
@@ -224,7 +271,9 @@ function Viewer({
   return (
     <section>
       <div className="mb-2 flex flex-wrap gap-2" role="tablist" aria-label="Coordinate pane">
-        {(['wt', 'mutant', 'overlay'] as const).map((item) => (
+        {(['wt', 'mutant', 'overlay'] as const)
+          .filter((item) => item === 'wt' || urls.mutant)
+          .map((item) => (
           <button
             key={item}
             type="button"
@@ -235,7 +284,7 @@ function Viewer({
           >
             {item === 'wt' ? 'Wild type' : item === 'mutant' ? 'Mutant' : 'Overlay'}
           </button>
-        ))}
+          ))}
       </div>
       {urls.mock ? (
         <p className="mb-2 text-sm">
@@ -254,7 +303,8 @@ function Viewer({
       </div>
       {chain && residue ? (
         <p className="mt-2 text-sm">
-          Focus request: chain {chain}, author residue {residue}.
+          Focused on chain {chain}, residue {residue}.
+          {urls.mutant ? '' : ' No mutant model was built; FoldX scored the substitution without saving coordinates.'}
         </p>
       ) : null}
     </section>

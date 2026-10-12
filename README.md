@@ -42,7 +42,7 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | 4 | Explainability | done |
 | 5 | Structure and stability (FoldX ΔΔG) | done |
 | 6 | Integrated report | done |
-| 7 | Frontend integration | planned |
+| 7 | Frontend integration | done |
 
 ## Data
 
@@ -282,7 +282,21 @@ pytest -q
 ## Frontends
 
 - `web/` + `api/`: React app with a read-only FastAPI layer. See
-  `web/README_FRONTEND.md` and `api/API_CONTRACT.md`. Start both with `dev.ps1`.
+  `web/README_FRONTEND.md` and `api/API_CONTRACT.md`. Start both with `dev.ps1`,
+  or build once (`cd web && npm ci && npm run build`) and open
+  http://127.0.0.1:8000/ after `python -m uvicorn api.main:app --port 8000`.
+  It shows the outputs of phases 2 to 6:
+  - **Structure:** the AlphaFold model with the variant residue focused, its
+    pLDDT, solvent accessibility and secondary structure, and the FoldX ΔΔG.
+  - **Report:** the integrated interpretation (conclusion, evidence lines,
+    flags); the Markdown download is the phase 6 report.
+  - **Explorer, VUS tab:** ordered by the phase 6 ranking, with tier,
+    probability and ΔΔG on each card.
+  - **Models:** leave-one-gene-out and within-gene metrics with CIs, published
+    predictors, per-gene scores and the ablation.
+  - **Bench:** the held-out-gene split models, checked against the scores
+    saved at training time (`metrics.json` `held_out_split`) rather than old
+    README literals.
 - `app.py`: earlier Streamlit prototype (`streamlit run app.py`).
 
 ## Stability (FoldX ΔΔG)

@@ -4,13 +4,48 @@ Base URL: `http://127.0.0.1:8000`. Process must be started with the **repo root*
 
 Phase 0 writes this contract only. The FastAPI app is Phase 1. The frontend mock client must implement this document exactly, including nulls.
 
+## Phase 7 additions
+
+These fields were added once the pipeline produced FoldX ΔΔG and integrated
+reports (`api/integration.py`). They supersede the older notes further down
+where the two disagree. All are read from files; nothing is trained.
+
+- `GET /variants/{id}/structure`: for every gene with an AlphaFold DB model,
+  `has_structure` is true, `files.wt` points at `/files/pdb/AF-<uniprot>-F1-model_v6.pdb`
+  (served from `data/raw/alphafold/`), and `files.mutant.present` is false
+  (FoldX scored the substitution without saving coordinates). New fields:
+  `ddg_category` (`strongly destabilising | destabilising | neutral | stabilising | not modelled`)
+  and `model` (`{source, name, source_url, uniprot_id, chain, residue, wt_aa, mut_aa,
+  context: {plddt, rsa, contact_count, sec_struct}}`). `ddg` is the FoldX value
+  from `data/raw/foldx_ddg.csv`, or a reason (pLDDT < 70, no model). The
+  ACTC1_R39H proof of concept is used only when its two PDBs are on disk.
+- `GET /variants/{id}/report`: new `integrated: Maybe<IntegratedReport>`, the
+  phase 6 report from `src.report.generate_report` (conclusion, tier,
+  probability, evidence lines, flags, key SHAP features, `markdown`).
+  `?format=markdown` returns that Markdown followed by the raw payload.
+- `GET /vus`: rows are ordered by the phase 6 rank and carry
+  `ranking: {rank, probability, calibrated_probability, tier, foldx_ddg,
+  ddg_category, evidence_agree, evidence_informative, top_reasons}` from
+  `outputs/reports/vus_report.csv`.
+- `GET /metrics`: `reported` now comes from `outputs/metrics.json`
+  `held_out_split` (saved by training) instead of README literals; it is null
+  only when neither that block nor a recomputation is available. New
+  `cross_validation` block with leave-one-gene-out and within-gene metrics
+  (mean and bootstrap 95% CI), published-predictor baselines and per-gene
+  scores.
+- `GET /health` also lists `alphafold_manifest`, `alphafold_residues`,
+  `foldx_ddg`, `vus_report` and `metrics`.
+- Local SHAP uses `TreeExplainer(model_output="probability",
+  feature_perturbation="interventional")` with 200 training-gene rows as
+  background; without background data SHAP refuses probability output.
+
 ## Rules
 
 1. Missing artifacts do not crash the process. Lifespan load records a reason and continues.
 2. A null measurement is `{ "value": null, "reason": "<why>" }`. When `value` is present, `reason` is null.
 3. Do not substitute README numbers for a missing file. The one exception is `reported` inside `GET /metrics`, which is explicitly the published comparison baseline and is never placed in `recomputed`.
 4. Do not import `src.structure.mutate_pdb` (it mutates a PDB at import time).
-5. Do not call `run_foldx_ddg` (it raises `NotImplementedError` if FoldX is on `PATH`).
+5. Do not run FoldX from the API. ΔΔG is precomputed by `src/structure/foldx_ddg.py`.
 6. Do not call the ESMFold endpoint.
 7. Do not read `outputs/example_variant_report.json` as a real report.
 8. Do not train, and do not write model or SHAP artifacts.

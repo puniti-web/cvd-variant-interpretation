@@ -204,7 +204,7 @@ def conclusion(probability: float, evidence: list[Evidence], clinvar_label: str 
     text = f"{tier(probability).capitalize()} (P = {probability:.2f})."
     if own:
         text += (f" Independent evidence agreeing: {len(agree)} of {len(own)}"
-                 f" ({', '.join(e.name.lower() for e in agree) or 'none'}).")
+                 f" ({', '.join(e.name for e in agree) or 'none'}).")
     flags = []
     for e in own:
         if e.direction != predicted:

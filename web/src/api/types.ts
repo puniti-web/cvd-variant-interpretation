@@ -144,6 +144,39 @@ export interface MetricMatch {
   all_matched: boolean
 }
 
+export interface CvStat {
+  mean: number | null
+  ci95: [number, number] | null
+}
+
+export interface Baseline {
+  coverage: number
+  roc_auc: number
+  pr_auc: number
+  model_roc_auc_same_variants: number
+  model_pr_auc_same_variants: number
+}
+
+export interface PerGene {
+  gene_symbol: string
+  n: number
+  pathogenic: number
+  benign: number
+  roc_auc: number | null
+  accuracy: number
+}
+
+export interface CrossValidation {
+  scheme: Record<string, string> | null
+  n_variants: number | null
+  n_genes: number | null
+  best_model: string | null
+  gene_grouped: Record<string, Record<string, CvStat>>
+  within_gene: Record<string, Record<string, CvStat>>
+  baselines: Record<string, Baseline> | null
+  per_gene: PerGene[] | null
+}
+
 export interface Metrics {
   split: {
     test_genes: Maybe<string[]>
@@ -154,7 +187,8 @@ export interface Metrics {
     source: string
     random_forest: ModelMetrics
     xgboost: ModelMetrics
-  }
+  } | null
+  cross_validation?: CrossValidation | null
   recomputed: null | {
     mock?: boolean
     random_forest: ModelMetrics
@@ -220,6 +254,19 @@ export interface VusSummary {
   protein_change: string | null
   predictions: { rf: Prediction; xgb: Prediction } | null
   predictions_reason: string | null
+  ranking?: VusRanking | null
+}
+
+export interface VusRanking {
+  rank: number | null
+  probability: number | null
+  calibrated_probability: number | null
+  tier: string | null
+  foldx_ddg: number | null
+  ddg_category: string | null
+  evidence_agree: number | null
+  evidence_informative: number | null
+  top_reasons: string | null
 }
 
 export interface Page<T> {
@@ -347,6 +394,66 @@ export interface StructurePayload {
   esmfold_note: string
   known_structures: Maybe<KnownStructure[]>
   mock_viewer?: null | { wt: string; mutant: string; mock: true }
+  ddg_category?: string
+  model?: StructureModel | null
+}
+
+export interface ResidueContext {
+  plddt: number | null
+  rsa: number | null
+  contact_count: number | null
+  sec_struct: string | null
+}
+
+export interface StructureModel {
+  source: string
+  name: string
+  source_url: string
+  uniprot_id: string | null
+  chain: string
+  residue: number
+  wt_aa: string
+  mut_aa: string
+  context: ResidueContext | null
+}
+
+export interface EvidenceLine {
+  name: string
+  direction: 'pathogenic' | 'benign' | 'neutral' | 'unavailable'
+  detail: string
+  independent: boolean
+}
+
+export interface IntegratedContribution {
+  feature: string
+  label: string
+  value_display: string
+  shap: number
+  direction: 'pathogenic' | 'benign'
+}
+
+export interface IntegratedReport {
+  variant: string
+  gene_symbol: string
+  protein_change: string
+  condition: string
+  panel: string
+  clinvar: { label: string | null; review_stars: number; clinvar_uid: number | null }
+  prediction: {
+    probability: number
+    source: string
+    label: 'pathogenic' | 'benign'
+    calibrated_at_training_prevalence: number | null
+  }
+  tier: string
+  key_features: IntegratedContribution[]
+  stability: { foldx_ddg: number | null; category: string }
+  structure: Record<string, number | string | null>
+  evidence: EvidenceLine[]
+  conclusion: string
+  flags: string[]
+  disclaimer: string
+  markdown: string
 }
 
 export interface Report {
@@ -365,6 +472,7 @@ export interface Report {
   structure: StructurePayload
   summaries: { rf: Maybe<string>; xgb: Maybe<string> }
   interpretation: string
+  integrated?: Maybe<IntegratedReport>
   missing: { field: string; reason: string | null }[]
 }
 

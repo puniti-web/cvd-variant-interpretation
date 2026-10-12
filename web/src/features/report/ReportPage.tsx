@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api/client.ts'
-import type { Report, ShapFeature } from '../../api/types.ts'
+import type { IntegratedReport, Report, ShapFeature } from '../../api/types.ts'
 import { ModelDials } from '../../charts/Dials.tsx'
 import { PhyschemBars } from '../../charts/Physchem.tsx'
 import { EmptyState, Missing, MockTag, PageIntro, QueryGate, Stamp } from '../../components/ui.tsx'
-import { caseLabel, featureLabel, formatProb } from '../../lib/format.ts'
+import { caseLabel, featureLabel, formatNumber, formatProb } from '../../lib/format.ts'
 
 export function ReportPage() {
   const params = useParams()
@@ -72,7 +72,18 @@ function Dossier({ report }: { report: Report }) {
       {note ? <p role="alert">{note}</p> : null}
       <Stamp variantId={report.variant_id} label={clinicalLabel} />
       <p className="border border-ink p-3 font-display text-xl">{report.disclaimer}</p>
-      <p>{report.interpretation}</p>
+      {report.integrated?.value ? (
+        <IntegratedPanel report={report.integrated.value} />
+      ) : report.integrated ? (
+        <section>
+          <h2 className="font-display text-xl">Integrated interpretation</h2>
+          <Missing reason={report.integrated.reason} />
+        </section>
+      ) : null}
+      <details>
+        <summary className="cursor-pointer font-display text-xl">Model-by-model notes</summary>
+        <p className="mt-2 whitespace-pre-line">{report.interpretation}</p>
+      </details>
       <ModelDials rf={report.predictions.rf} xgb={report.predictions.xgb} agreement={report.agreement} />
       <section className="grid gap-3 md:grid-cols-2">
         <Summary title="Random Forest summary" text={report.summaries.rf} />
@@ -110,7 +121,15 @@ function Dossier({ report }: { report: Report }) {
           )}
         </p>
         <p className="mt-2 text-sm">
-          ΔΔG: <Missing reason={report.structure.ddg.reason} />
+          FoldX ΔΔG:{' '}
+          {report.structure.ddg.value == null ? (
+            <Missing reason={report.structure.ddg.reason} />
+          ) : (
+            <span className="font-mono">
+              {report.structure.ddg.value > 0 ? '+' : ''}
+              {formatNumber(report.structure.ddg.value, 2)} kcal/mol ({report.structure.ddg_category ?? 'uncategorised'})
+            </span>
+          )}
         </p>
       </section>
       <section>
@@ -150,6 +169,88 @@ function Dossier({ report }: { report: Report }) {
         )}
       </section>
     </article>
+  )
+}
+
+const DIRECTION_TONE: Record<string, string> = {
+  pathogenic: 'bg-pathogenic',
+  benign: 'bg-benign',
+  neutral: 'bg-graphite',
+  unavailable: 'bg-graphite',
+}
+
+function IntegratedPanel({ report }: { report: IntegratedReport }) {
+  const p = report.prediction
+  return (
+    <section className="space-y-4 border border-ink p-4">
+      <div>
+        <p className="font-mono text-xs tracking-[0.18em] text-mute uppercase">Integrated interpretation</p>
+        <p className="mt-1 font-display text-2xl">{report.conclusion}</p>
+        <p className="mt-1 text-sm text-mute">
+          P(pathogenic) {formatProb(p.probability)} from {p.source}
+          {p.calibrated_at_training_prevalence != null
+            ? `; ${formatProb(p.calibrated_at_training_prevalence)} at the training prevalence`
+            : ''}
+          . {report.condition ? `Disease context: ${report.condition}.` : ''}
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-mute">
+              <th className="py-1 pr-4 font-normal">Evidence line</th>
+              <th className="py-1 pr-4 font-normal">Points to</th>
+              <th className="py-1 pr-4 font-normal">Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.evidence.map((line) => (
+              <tr key={line.name} className="border-t rule align-top">
+                <td className="py-1 pr-4">
+                  {line.name}
+                  {line.independent ? null : <span className="block text-xs text-mute">reference only</span>}
+                </td>
+                <td className="py-1 pr-4 whitespace-nowrap">
+                  <span className="inline-flex items-center gap-2">
+                    <span className={`inline-block h-3 w-3 ${DIRECTION_TONE[line.direction] ?? 'bg-graphite'}`} aria-hidden />
+                    {line.direction}
+                  </span>
+                </td>
+                <td className="py-1 pr-4">{line.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3 className="font-display text-lg">Why the model decided this</h3>
+        <ol className="mt-1 space-y-1 text-sm">
+          {report.key_features.map((item) => (
+            <li key={item.feature} className="flex flex-wrap justify-between gap-3">
+              <span>
+                {item.label} <span className="font-mono text-mute">= {item.value_display}</span>
+              </span>
+              <span className="font-mono">
+                {item.shap >= 0 ? '+' : '−'}
+                {formatProb(Math.abs(item.shap))} towards {item.direction}
+              </span>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-1 text-xs text-mute">SHAP values of the full XGBoost model, in log-odds.</p>
+      </div>
+      {report.flags.length > 0 ? (
+        <div>
+          <h3 className="font-display text-lg">Flags</h3>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {report.flags.map((flag) => (
+              <li key={flag}>{flag}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <p className="text-xs text-mute">{report.disclaimer}</p>
+    </section>
   )
 }
 

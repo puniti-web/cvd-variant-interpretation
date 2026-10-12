@@ -52,7 +52,7 @@ export function CaseFile({ detail }: { detail: VariantDetail }) {
         </div>
         <div>
           <dt className="text-xs tracking-wide text-mute uppercase">Structure</dt>
-          <dd>{detail.has_structure ? 'Proof-of-concept PDB pair' : 'No proof-of-concept structure'}</dd>
+          <dd>{detail.has_structure ? 'AlphaFold model available' : 'No AlphaFold model for this protein'}</dd>
         </div>
       </dl>
       {detail.clinical.parse_reason ? <p className="text-xs text-mute">{detail.clinical.parse_reason}</p> : null}

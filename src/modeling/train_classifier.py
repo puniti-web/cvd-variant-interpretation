@@ -192,6 +192,24 @@ def train_xgboost(X_train, y_train) -> Pipeline:
     return make_xgboost(y_train).fit(X_train, y_train)
 
 
+def held_out_metrics(models: dict, test_df: pd.DataFrame) -> dict:
+    """
+    Scores of the split models on the held-out genes, with confusion
+    matrices. Stored in metrics.json as the values the API checks its own
+    recomputation against.
+    """
+    from sklearn.metrics import confusion_matrix
+
+    out = {"test_genes": sorted(test_df["gene_symbol"].unique()), "n_test": int(len(test_df))}
+    for name, model in models.items():
+        X_test, y_test = test_df[FEATURE_COLUMNS], test_df["y"]
+        metrics = evaluate_classifier(model, X_test, y_test, name=f"{name} (held-out genes)")
+        y_pred = (model.predict_proba(X_test)[:, 1] >= 0.5).astype(int)
+        metrics["confusion_matrix"] = confusion_matrix(y_test, y_pred, labels=[0, 1]).tolist()
+        out[name] = {k: (float(v) if k != "confusion_matrix" else v) for k, v in metrics.items()}
+    return out
+
+
 def calibrated_xgboost(X, y, groups) -> CalibratedClassifierCV:
     folds = list(StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE).split(X, y, groups))
     model = CalibratedClassifierCV(make_xgboost(y), method="sigmoid", cv=folds)
@@ -206,8 +224,6 @@ def main():
           f"{int(y.sum())} pathogenic / {int((1 - y).sum())} benign")
 
     results = run_evaluation(df, FEATURE_COLUMNS, MODEL_FACTORIES)
-    with open(OUTPUTS_DIR / "metrics.json", "w", encoding="utf-8") as f:
-        json.dump(results["metrics"], f, indent=2)
     # Read as-is by the API's /ablation endpoint.
     with open(OUTPUTS_DIR / "ablation_results.json", "w", encoding="utf-8") as f:
         json.dump(results["metrics"]["ablation_gene_grouped"], f, indent=2)
@@ -217,10 +233,13 @@ def main():
     # The API scores these on the held-out genes, so they must not see them.
     train_df, test_df = gene_level_split(df)
     print(f"\nHeld-out split for the API: test genes {sorted(test_df['gene_symbol'].unique())}")
+    split_models = {}
     for name, factory in MODEL_FACTORIES.items():
-        model = factory(train_df["y"]).fit(train_df[FEATURE_COLUMNS], train_df["y"])
-        joblib.dump(model, OUTPUTS_DIR / MODEL_FILES[name])
-        evaluate_classifier(model, test_df[FEATURE_COLUMNS], test_df["y"], name=f"{name} (held-out genes)")
+        split_models[name] = factory(train_df["y"]).fit(train_df[FEATURE_COLUMNS], train_df["y"])
+        joblib.dump(split_models[name], OUTPUTS_DIR / MODEL_FILES[name])
+    results["metrics"]["held_out_split"] = held_out_metrics(split_models, test_df)
+    with open(OUTPUTS_DIR / "metrics.json", "w", encoding="utf-8") as f:
+        json.dump(results["metrics"], f, indent=2)
 
     # Full models: trained on every labelled variant, used to score VUS and
     # for SHAP explanations. XGBoost is the explained model; it is within

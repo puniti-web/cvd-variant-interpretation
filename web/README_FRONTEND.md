@@ -36,12 +36,14 @@ The mock ribbon is visible on every page while mocks are on. Clinical labels, ph
 | `/` | Sealed drawer. Open it to enter the bench |
 | `/bench` | Counts, gene split, pipeline helix, per-gene stacks, metrics, global SHAP, artifact health |
 | `/explore?variant=` | Labelled and VUS lists, filters, case file |
-| `/structure/:id` | Molstar panes, RMSD, empty ΔΔG |
-| `/report/:id` | Dossier, Markdown and JSON downloads |
-| `/models` | Metrics, leakage notes, ablation plan |
+| `/structure/:id` | AlphaFold model in Molstar with the variant residue focused, residue context, FoldX ΔΔG |
+| `/report/:id` | Integrated interpretation (conclusion, evidence lines, flags), per-model notes, Markdown and JSON downloads |
+| `/models` | Leave-one-gene-out and within-gene metrics with CIs, published predictors, per-gene scores, ablation |
 | `/about` | Sources, split, limits |
 
 Smoke cases in the mock catalog: `ACTC1_R39H` (structure), `CACNA1C_G1365R` (test gene, no structure), `MYH7_F252Y` (train gene). Find them from the bench chips or Ctrl/Cmd+K.
+
+With the real API (`VITE_USE_MOCKS=false`, or the production build served by FastAPI at http://127.0.0.1:8000/) the VUS tab is ordered by the phase 6 ranking and each card shows tier, probability and ΔΔG. The mock catalog predates phases 5 to 7 and shows none of this.
 
 The structure viewer loads the Molstar browser bundle (`molstar/build/viewer/molstar.js`). `pdbe-molstar` is installed for the same viewer family; the prebuilt Molstar script is what the page executes, because the plugin's CommonJS graph does not bundle cleanly through Vite on Node 20. In mock mode, both wild-type and mutant panes load deposited PDB 9B3R from RCSB. The real API does not proxy RCSB. When local PDBs exist, the viewer uses `/files/pdb/...` from the API.
 
@@ -66,7 +68,7 @@ python -m src.pipeline --stage train
 python -m src.pipeline --stage explain
 ```
 
-Structure is manual: place `outputs/ACTC1_R39H_wt.pdb` (PDB 9B3R), then run `python -m src.structure.mutate_pdb` and the stability step. Do not import `mutate_pdb` from the API. FoldX ΔΔG stays unimplemented. Do not call ESMFold from the API.
+`python -m src.pipeline --stage annotate` downloads the AlphaFold models the structure page shows. FoldX ΔΔG runs separately (`src/structure/foldx_ddg.py`, see the main README) and is read from `data/raw/foldx_ddg.csv`; `--stage report` writes `outputs/reports/vus_report.csv` for the VUS ranking. Do not import `mutate_pdb` from the API. Do not call ESMFold from the API.
 
 ## Checks
 
