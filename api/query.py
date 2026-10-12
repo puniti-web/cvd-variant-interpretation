@@ -549,6 +549,22 @@ def _explain_matrix(catalog: Catalog, model_key: str, model: Any, frame: Any) ->
     return values, names, base
 
 
+SHAP_BACKGROUND_ROWS = 200
+
+
+def _background(catalog: Catalog, model: Any) -> Any:
+    if catalog.split is None or catalog.feature_frame is None or catalog.feature_cols is None:
+        raise RuntimeError("No training rows available for the SHAP background.")
+    from src.modeling.train_classifier import training_rows
+
+    frame = training_rows(catalog.feature_frame)
+    train_genes = set(catalog.split.train_genes)
+    rows = frame[frame["gene_symbol"].isin(train_genes)]
+    rows = rows.sample(min(SHAP_BACKGROUND_ROWS, len(rows)), random_state=0)
+    data = model.named_steps["preprocess"].transform(rows[catalog.feature_cols])
+    return data.toarray() if hasattr(data, "toarray") else data
+
+
 def _explainer(catalog: Catalog, model_key: str, model: Any) -> Any:
     if model_key in catalog.explainer_errors:
         raise RuntimeError(catalog.explainer_errors[model_key])
@@ -556,11 +572,14 @@ def _explainer(catalog: Catalog, model_key: str, model: Any) -> Any:
     if cached is not None:
         return cached
     try:
-        # Same call site as src.explainability.shap_explain.compute_shap_values,
-        # with model_output="probability" so the waterfall is in P(pathogenic).
+        # model_output="probability" puts the waterfall in P(pathogenic). SHAP
+        # only supports it with background data (interventional), so use a
+        # fixed sample of the training-gene rows the split models were fit on.
         explainer = catalog.shap_module.TreeExplainer(
             model.named_steps["clf"],
+            data=_background(catalog, model),
             model_output="probability",
+            feature_perturbation="interventional",
         )
     except Exception as exc:
         catalog.explainer_errors[model_key] = str(exc)
@@ -1397,6 +1416,15 @@ def report_payload(catalog: Catalog, record: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
+def _foldx_ddg(inputs: Inputs) -> float | None:
+    """FoldX ddG from the feature frame, or None when the variant was not modelled."""
+    frame = inputs.frame
+    if frame is None or "foldx_ddg" not in getattr(frame, "columns", []):
+        return None
+    value = frame["foldx_ddg"].iloc[0]
+    return None if value is None or math.isnan(float(value)) else float(value)
+
+
 def _summary_from_report(
     record: dict[str, Any],
     inputs: Inputs,
@@ -1422,7 +1450,7 @@ def _summary_from_report(
                 {"feature": item["feature"], "shap_value": float(item["shap_value"])} for item in top
             ],
             structural_rmsd=rmsd,
-            predicted_ddg=None,
+            predicted_ddg=_foldx_ddg(inputs),
             stability_interpretation=stability,
         )
     except Exception as exc:

@@ -55,8 +55,8 @@
     {
       "id": 8,
       "name": "Integrated report",
-      "status": "partial",
-      "note": "make_report exists and is not wired to the pipeline."
+      "status": "done",
+      "note": "src/report/generate_report.py builds rule-based reports per variant and a ranked VUS report (outputs/reports/). The API summary uses make_report with FoldX \u0394\u0394G."
     }
   ],
   "ui": {

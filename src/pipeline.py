@@ -10,6 +10,10 @@ Usage:
     python -m src.pipeline --stage features
     python -m src.pipeline --stage train
     python -m src.pipeline --stage explain
+    python -m src.pipeline --stage report
+
+FoldX ddG (src/structure/foldx_ddg.py) runs on separate compute and is not
+a stage here; build_feature_matrix picks up data/raw/foldx_ddg.csv when present.
 """
 import argparse
 
@@ -71,6 +75,18 @@ def run_explain():
         sys.argv = argv
 
 
+def run_report():
+    import sys
+
+    from src.report import generate_report
+
+    argv, sys.argv = sys.argv, [sys.argv[0]]
+    try:
+        generate_report.main()
+    finally:
+        sys.argv = argv
+
+
 STAGES = {
     "collect": run_collect,
     "preprocess": run_preprocess,
@@ -78,6 +94,7 @@ STAGES = {
     "features": run_features,
     "train": run_train,
     "explain": run_explain,
+    "report": run_report,
 }
 
 

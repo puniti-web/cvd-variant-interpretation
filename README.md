@@ -26,7 +26,7 @@ SHAP explanations (global + per variant)
 Structure + stability (FoldX ΔΔG, run on AWS EC2)
         │
         ▼
-Integrated variant report                      ← phase 6, not started
+Integrated variant report (rule-based conclusion, ranked VUS)
 ```
 
 This is not a clinical tool. Predictions must not be used for diagnosis.
@@ -41,7 +41,7 @@ This is not a clinical tool. Predictions must not be used for diagnosis.
 | 3 | Modeling and evaluation | done |
 | 4 | Explainability | done |
 | 5 | Structure and stability (FoldX ΔΔG) | done |
-| 6 | Integrated report | planned |
+| 6 | Integrated report | done |
 | 7 | Frontend integration | planned |
 
 ## Data
@@ -323,6 +323,53 @@ ROC-AUC moves by only +0.003 (XGBoost, RF) and 0.000 (logistic regression),
 well inside the confidence intervals. Most of what ΔΔG captures is already
 present in solvent accessibility, packing and conservation.
 
+## Integrated report
+
+`python -m src.report.generate_report` (or `--stage report`) combines every
+earlier stage into one report per variant (`outputs/reports/`):
+
+- ClinVar record and disease from `config/genes.yaml`
+- model probability: for labelled variants the out-of-fold XGBoost score
+  with the variant's gene held out; for VUS the calibrated XGBoost
+- top SHAP contributions
+- FoldX ΔΔG and its category, AlphaFold context, UniProt domain
+- conservation, and AlphaMissense / REVEL as reference only
+
+The conclusion is assembled from fixed rules in `src/report/generate_report.py`,
+so every sentence traces to a threshold:
+
+| Element | Rule |
+| --- | --- |
+| Tier | P ≥ 0.9 strong pathogenic, ≥ 0.7 moderate, 0.3–0.7 inconclusive, ≤ 0.3 moderate benign, < 0.1 strong benign |
+| Probability scale | Calibrated P re-expressed for a 50/50 prior. The calibrated value assumes the training mix (85% pathogenic) and would call most VUS pathogenic |
+| Conservation | pathogenic if ≥ 90% of orthologs keep the residue and phyloP ≥ 2; benign if the mutant residue occurs in ≥ 5% of orthologs or < 60% keep the residue |
+| Stability | ΔΔG ≥ 1 kcal/mol destabilising (≥ 2 strongly). Neutral or stabilising ΔΔG is *not* counted as benign evidence |
+| Structure | pathogenic if buried (RSA < 25%) at pLDDT ≥ 70; benign if pLDDT < 50 or in a disordered region |
+| Reference predictors | AlphaMissense 0.34 / 0.564, REVEL 0.290 / 0.644 (ClinGen). Reported, not counted, since both used ClinVar |
+| Flags | disagreement with an evidence line, a reference predictor or ClinVar; fewer than 10 benign training variants in the gene; no ΔΔG |
+
+Example (`MYH7_R403Q.md`): *Moderate model support for pathogenic (P = 0.74).
+Independent evidence agreeing: 2 of 2 (conservation, stability).* The
+out-of-fold P is lower than the full model's 0.97 because MYH7 was held out.
+
+**Checks.** On labelled variants (out-of-fold), the share that ClinVar calls
+pathogenic is 97% in the strong-pathogenic tier and 12% in the strong-benign
+tier. On VUS, 86% of strong-pathogenic calls are AlphaMissense-pathogenic and
+89% of strong-benign calls are AlphaMissense-benign.
+
+**VUS.** All 16,860 VUS are scored in `outputs/reports/vus_report.csv`
+(tier, ΔΔG, evidence agreement, top reasons) and the top 50 get full reports
+in `vus_top50.md`. Tier counts: 1,654 strong pathogenic, 5,850 moderate
+pathogenic, 2,857 inconclusive, 2,342 moderate benign, 4,157 strong benign.
+Probabilities saturate near 0.91 at the top, so ranks within the top tier
+are effectively ties.
+
+Tiers are model-support levels, not ACMG/AMP classes.
+
+The API's report endpoint now passes ΔΔG into its summary, and its
+per-variant SHAP works again (`TreeExplainer` with `model_output="probability"`
+needs background data; it now uses 200 training-gene rows).
+
 ## Project layout
 
 ```text
@@ -334,7 +381,7 @@ src/modeling/               training and evaluation
 src/explainability/         SHAP
 src/structure/              FoldX ΔΔG pipeline (phase 5)
 scripts/aws/                EC2 user data for the FoldX run
-src/report/                 integrated report (phase 6)
+src/report/                 integrated variant report (phase 6)
 data/processed/             labelled and VUS variant tables (tracked)
 data/raw, data/features     generated, gitignored
 outputs/                    models, plots, metrics (gitignored)
